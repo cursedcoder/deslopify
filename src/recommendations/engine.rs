@@ -21,6 +21,7 @@ pub fn generate_all(
     add_type_checking(scan, &mut recs);
     add_ci(scan, &mut recs);
     reduce_global_mutables(analysis, &mut recs);
+    extract_libraries(scan, &mut recs);
 
     recs
 }
@@ -242,4 +243,66 @@ fn reduce_global_mutables(analysis: &AnalysisResult, recs: &mut Vec<Recommendati
             evidence: format!("{} global mutable patterns detected", analysis.global_mutable_count),
         });
     }
+}
+
+fn extract_libraries(scan: &ScanResult, recs: &mut Vec<Recommendation>) {
+    let git = match &scan.git_activity {
+        Some(g) if g.is_git_repo && g.active_files > 0 => g,
+        _ => return,
+    };
+
+    let active_pct = git.active_files as f64 / scan.total_files.max(1) as f64;
+
+    // Only recommend when codebase is large enough AND the active surface is wide.
+    // A small project where everything changes is fine — there's nothing to extract.
+    // A large project where >60% of files are active has too much surface area for
+    // an LLM agent; extracting stable utilities into libraries shrinks the tip.
+    if scan.total_files < 50 || active_pct < 0.60 {
+        return;
+    }
+
+    let hot_names: Vec<String> = git
+        .hot_files
+        .iter()
+        .take(3)
+        .map(|h| {
+            h.path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+
+    let reduction = if active_pct > 0.85 { 5 } else { 3 };
+
+    recs.push(Recommendation {
+        priority: 0,
+        estimated_reduction: reduction,
+        title: format!(
+            "Extract libraries to shrink active surface ({:.0}% of files changed in {} months)",
+            active_pct * 100.0,
+            git.window_months
+        ),
+        target: "project architecture".to_string(),
+        action: format!(
+            "Move stable utility code into internal libraries or packages that rarely change. \
+             This shrinks the \"tip of the iceberg\" — the active surface an LLM agent must \
+             reason about. Focus on code that doesn't appear in the hot files list. \
+             Currently {} of {} files changed recently; extracting shared helpers, data models, \
+             and configuration into versioned libraries would reduce context pressure significantly.",
+            git.active_files, scan.total_files
+        ),
+        evidence: format!(
+            "{} active files ({:.0}%), {} frozen files, hottest: {}",
+            git.active_files,
+            active_pct * 100.0,
+            git.frozen_files,
+            if hot_names.is_empty() {
+                "n/a".to_string()
+            } else {
+                hot_names.join(", ")
+            }
+        ),
+    });
 }
