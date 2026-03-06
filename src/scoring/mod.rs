@@ -30,9 +30,21 @@ pub struct ContextBudget {
 pub struct ScoreResult {
     pub slop_index: u32,
     pub raw_score: f64,
+    pub size_multiplier: f64,
     pub verdict: String,
     pub dimensions: Vec<DimensionScore>,
     pub context_budget: ContextBudget,
+}
+
+/// Compute a multiplier [0.0, 1.0] that reflects how much of the usable context
+/// window the codebase fills. Small projects that fit easily in context get a low
+/// multiplier, pulling the overall score toward 0.  The sqrt curve means a project
+/// using 25% of context keeps 50% of its score, while one at 100%+ keeps the full
+/// score.
+pub fn size_multiplier(total_bytes: u64) -> f64 {
+    let estimated_tokens = total_bytes as f64 / context_budget::CHARS_PER_TOKEN as f64;
+    let context_ratio = estimated_tokens / context_budget::USABLE_CONTEXT as f64;
+    context_ratio.sqrt().min(1.0)
 }
 
 pub fn score(scan: &ScanResult, analysis: &AnalysisResult) -> ScoreResult {
@@ -42,7 +54,9 @@ pub fn score(scan: &ScanResult, analysis: &AnalysisResult) -> ScoreResult {
         .map(|d| d.weight as f64 * d.rating as f64 / 5.0)
         .sum();
 
-    let slop_index = (raw_score.round() as u32).min(100);
+    let mult = size_multiplier(scan.total_bytes);
+    let adjusted = raw_score * mult;
+    let slop_index = (adjusted.round() as u32).min(100);
 
     let verdict = match slop_index {
         0..=20 => "CLEAN",
@@ -58,6 +72,7 @@ pub fn score(scan: &ScanResult, analysis: &AnalysisResult) -> ScoreResult {
     ScoreResult {
         slop_index,
         raw_score,
+        size_multiplier: mult,
         verdict,
         dimensions,
         context_budget,
@@ -198,6 +213,65 @@ mod tests {
             .map(|d| d.weight as f64 * d.rating as f64 / 5.0)
             .sum();
         assert!((raw - 6.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn size_multiplier_tiny_project() {
+        // ~1000 lines * 10 chars = 10k bytes -> ~2500 tokens -> ratio ~0.014
+        let mult = size_multiplier(10_000);
+        assert!(
+            mult < 0.2,
+            "Tiny project should have multiplier < 0.2, got {:.3}",
+            mult
+        );
+        assert!(mult > 0.0, "Multiplier should be positive");
+    }
+
+    #[test]
+    fn size_multiplier_small_project() {
+        // ~70k bytes -> ~17.5k tokens -> ratio ~0.1
+        let mult = size_multiplier(70_000);
+        assert!(
+            mult < 0.4,
+            "Small project should have multiplier < 0.4, got {:.3}",
+            mult
+        );
+        assert!(
+            mult > 0.15,
+            "Small project should have multiplier > 0.15, got {:.3}",
+            mult
+        );
+    }
+
+    #[test]
+    fn size_multiplier_medium_project() {
+        // ~700k bytes -> ~175k tokens -> ratio ~1.0
+        let mult = size_multiplier(700_000);
+        assert!(
+            mult > 0.9,
+            "Medium project near context limit should have multiplier > 0.9, got {:.3}",
+            mult
+        );
+    }
+
+    #[test]
+    fn size_multiplier_large_project() {
+        // 4MB -> 1M tokens -> ratio ~5.7
+        let mult = size_multiplier(4_000_000);
+        assert!(
+            (mult - 1.0).abs() < f64::EPSILON,
+            "Large project should have multiplier exactly 1.0, got {:.3}",
+            mult
+        );
+    }
+
+    #[test]
+    fn size_multiplier_zero_bytes() {
+        let mult = size_multiplier(0);
+        assert!(
+            (mult - 0.0).abs() < f64::EPSILON,
+            "Empty project should have multiplier 0.0"
+        );
     }
 
     #[test]

@@ -50,12 +50,26 @@ fn print_header(score: &ScoreResult) {
         _ => index_str.on_red().white().bold().to_string(),
     };
 
-    println!(
-        "  {} {} ({})",
-        "SLOP INDEX:".bold(),
-        index_colored,
-        verdict_colored
-    );
+    if score.size_multiplier < 0.95 {
+        println!(
+            "  {} {} ({})  {}",
+            "SLOP INDEX:".bold(),
+            index_colored,
+            verdict_colored,
+            format!(
+                "size multiplier: {:.2}x — small codebase",
+                score.size_multiplier
+            )
+            .dimmed()
+        );
+    } else {
+        println!(
+            "  {} {} ({})",
+            "SLOP INDEX:".bold(),
+            index_colored,
+            verdict_colored
+        );
+    }
 }
 
 fn print_summary(scan: &ScanResult) {

@@ -4,8 +4,8 @@ use crate::scanner::ScanResult;
 
 use super::ContextBudget;
 
-const USABLE_CONTEXT: usize = 176_000; // ~200k minus ~24k for system prompt
-const CHARS_PER_TOKEN: usize = 4;
+pub const USABLE_CONTEXT: usize = 176_000; // ~200k minus ~24k for system prompt
+pub const CHARS_PER_TOKEN: usize = 4;
 
 pub fn estimate(scan: &ScanResult, analysis: &AnalysisResult) -> ContextBudget {
     let graph = imports::compute_import_graph(&analysis.imports);
