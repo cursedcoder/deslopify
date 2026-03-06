@@ -58,7 +58,10 @@ pub fn analyze(repo_path: &Path, files: &[FileEntry], window_months: u32) -> Opt
 
     for file in files {
         let relative = relativize(repo_path, &file.path);
-        if let Some(&count) = relative.as_ref().and_then(|r| file_commits.get(r.as_path())) {
+        if let Some(&count) = relative
+            .as_ref()
+            .and_then(|r| file_commits.get(r.as_path()))
+        {
             active_files += 1;
             active_lines += file.line_count;
             active_bytes += file.size_bytes;
@@ -143,17 +146,17 @@ fn count_commits(repo_path: &Path, months: u32) -> Option<usize> {
         return None;
     }
 
-    String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse()
-        .ok()
+    String::from_utf8_lossy(&output.stdout).trim().parse().ok()
 }
 
 /// Try to make a file path relative to the repo root.
 fn relativize(repo_path: &Path, file_path: &Path) -> Option<PathBuf> {
     let repo_canonical = repo_path.canonicalize().ok()?;
     let file_canonical = file_path.canonicalize().ok()?;
-    file_canonical.strip_prefix(&repo_canonical).ok().map(PathBuf::from)
+    file_canonical
+        .strip_prefix(&repo_canonical)
+        .ok()
+        .map(PathBuf::from)
 }
 
 /// Parse raw `git log --name-only` output into per-file commit counts.
@@ -203,7 +206,14 @@ pub fn cross_reference(
     hot.sort_by(|a, b| b.commit_count.cmp(&a.commit_count));
     hot.truncate(10);
 
-    (active_bytes, active_lines, active_files, frozen_files, frozen_bytes, hot)
+    (
+        active_bytes,
+        active_lines,
+        active_files,
+        frozen_files,
+        frozen_bytes,
+        hot,
+    )
 }
 
 #[cfg(test)]
@@ -276,10 +286,7 @@ src/main.rs
         commits.insert(PathBuf::from("a.rs"), 1);
         commits.insert(PathBuf::from("b.rs"), 1);
 
-        let files = vec![
-            make_file("a.rs", 10, 300),
-            make_file("b.rs", 20, 600),
-        ];
+        let files = vec![make_file("a.rs", 10, 300), make_file("b.rs", 20, 600)];
 
         let (active_bytes, _active_lines, active_count, frozen_count, frozen_bytes, _) =
             cross_reference(&commits, &files);
@@ -294,9 +301,7 @@ src/main.rs
     fn cross_reference_all_frozen() {
         let commits: HashMap<PathBuf, usize> = HashMap::new();
 
-        let files = vec![
-            make_file("a.rs", 10, 300),
-        ];
+        let files = vec![make_file("a.rs", 10, 300)];
 
         let (active_bytes, _active_lines, active_count, frozen_count, _frozen_bytes, hot) =
             cross_reference(&commits, &files);

@@ -51,12 +51,7 @@ pub struct Cli {
 fn main() {
     let cli = Cli::parse();
 
-    let scan_result = scanner::scan_with_git(
-        &cli.paths,
-        &cli.ignore,
-        !cli.no_git,
-        cli.git_months,
-    );
+    let scan_result = scanner::scan_with_git(&cli.paths, &cli.ignore, !cli.no_git, cli.git_months);
     let analysis_result = analysis::analyze(&scan_result);
     let score_result = scoring::score(&scan_result, &analysis_result);
     let recs = recommendations::generate(&score_result, &scan_result, &analysis_result);

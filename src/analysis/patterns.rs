@@ -64,19 +64,30 @@ const PATTERNS: &[AntiPattern] = &[
 ];
 
 const OUTPUT_STEMS: &[&str] = &[
-    "main", "cli", "cmd", "output", "display", "print", "printer",
-    "console", "log", "logger", "logging", "format", "formatter",
-    "render", "ui", "view", "app",
+    "main",
+    "cli",
+    "cmd",
+    "output",
+    "display",
+    "print",
+    "printer",
+    "console",
+    "log",
+    "logger",
+    "logging",
+    "format",
+    "formatter",
+    "render",
+    "ui",
+    "view",
+    "app",
 ];
 
 const OUTPUT_PARENT_DIRS: &[&str] = &[
-    "output", "display", "cli", "ui", "views", "view",
-    "console", "render", "print", "logging",
+    "output", "display", "cli", "ui", "views", "view", "console", "render", "print", "logging",
 ];
 
-const TEST_PARENT_DIRS: &[&str] = &[
-    "test", "tests", "spec", "specs", "__tests__",
-];
+const TEST_PARENT_DIRS: &[&str] = &["test", "tests", "spec", "specs", "__tests__"];
 
 /// Check if a file is likely a test file based on its name and immediate parent
 /// directory. Unlike `scanner::stats::is_test_file`, this avoids matching on deep
@@ -173,7 +184,7 @@ pub fn count_global_mutables(files: &[&FileEntry]) -> usize {
     let patterns = [
         Regex::new(r"^[A-Z_]{2,}\s*=\s*\[").unwrap(), // GLOBAL = [...]
         Regex::new(r"^[A-Z_]{2,}\s*=\s*\{").unwrap(), // GLOBAL = {...}
-        Regex::new(r"^static\s+mut\s").unwrap(),       // Rust static mut
+        Regex::new(r"^static\s+mut\s").unwrap(),      // Rust static mut
     ];
 
     let js_var = Regex::new(r"^var\s+\w+\s*=").unwrap();
@@ -342,7 +353,10 @@ mod tests {
 
     #[test]
     fn skips_debug_print_in_output_directory() {
-        let file = make_file_at("src/output/terminal.rs", "println!(\"result: {}\", score);\n");
+        let file = make_file_at(
+            "src/output/terminal.rs",
+            "println!(\"result: {}\", score);\n",
+        );
         let matches = detect_patterns(&[&file]);
         assert!(
             !matches.iter().any(|m| m.pattern_name == "debug_print"),
@@ -372,7 +386,10 @@ mod tests {
 
     #[test]
     fn still_detects_todo_in_test_files() {
-        let file = make_file_at("tests/test_utils.py", "# TODO: fix flaky test\nprint('ok')\n");
+        let file = make_file_at(
+            "tests/test_utils.py",
+            "# TODO: fix flaky test\nprint('ok')\n",
+        );
         let matches = detect_patterns(&[&file]);
         assert!(
             matches.iter().any(|m| m.pattern_name == "todo_placeholder"),
@@ -423,16 +440,28 @@ mod tests {
 
     #[test]
     fn lazy_static_not_flagged_as_global_mutable() {
-        let file = make_file_at("src/lib.rs", "lazy_static! {\n    static ref RE: Regex = Regex::new(r\"\\d+\").unwrap();\n}\n");
+        let file = make_file_at(
+            "src/lib.rs",
+            "lazy_static! {\n    static ref RE: Regex = Regex::new(r\"\\d+\").unwrap();\n}\n",
+        );
         let count = count_global_mutables(&[&file]);
-        assert_eq!(count, 0, "lazy_static should not be flagged as global mutable");
+        assert_eq!(
+            count, 0,
+            "lazy_static should not be flagged as global mutable"
+        );
     }
 
     #[test]
     fn once_cell_not_flagged_as_global_mutable() {
-        let file = make_file_at("src/lib.rs", "once_cell::sync::Lazy::new(|| Regex::new(r\"\\d+\").unwrap());\n");
+        let file = make_file_at(
+            "src/lib.rs",
+            "once_cell::sync::Lazy::new(|| Regex::new(r\"\\d+\").unwrap());\n",
+        );
         let count = count_global_mutables(&[&file]);
-        assert_eq!(count, 0, "once_cell should not be flagged as global mutable");
+        assert_eq!(
+            count, 0,
+            "once_cell should not be flagged as global mutable"
+        );
     }
 
     #[test]
@@ -446,6 +475,9 @@ mod tests {
     fn global_mutables_skipped_in_test_directories() {
         let file = make_file_at("tests/conftest.py", "FIXTURES = []\n");
         let count = count_global_mutables(&[&file]);
-        assert_eq!(count, 0, "Global mutables in test directories should be skipped");
+        assert_eq!(
+            count, 0,
+            "Global mutables in test directories should be skipped"
+        );
     }
 }

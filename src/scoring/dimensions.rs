@@ -385,9 +385,15 @@ fn documentation(scan: &ScanResult) -> DimensionScore {
     let mut evidence_parts = Vec::new();
     if has_config(scan, &ConfigKind::Readme) {
         if q.readme_has_setup_instructions {
-            evidence_parts.push(format!("README with setup instructions ({} bytes)", q.readme_bytes));
+            evidence_parts.push(format!(
+                "README with setup instructions ({} bytes)",
+                q.readme_bytes
+            ));
         } else if q.readme_bytes > 200 {
-            evidence_parts.push(format!("README present but no setup instructions ({} bytes)", q.readme_bytes));
+            evidence_parts.push(format!(
+                "README present but no setup instructions ({} bytes)",
+                q.readme_bytes
+            ));
         } else {
             evidence_parts.push(format!("README too sparse ({} bytes)", q.readme_bytes));
         }

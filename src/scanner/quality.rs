@@ -104,7 +104,9 @@ fn check_build_script(path: &PathBuf, signals: &mut QualitySignals) {
         .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_string()))
         .collect();
 
-    let standard_targets = ["build", "test", "run", "clean", "install", "lint", "check", "dev"];
+    let standard_targets = [
+        "build", "test", "run", "clean", "install", "lint", "check", "dev",
+    ];
     let has_standard = standard_targets
         .iter()
         .any(|t| targets.iter().any(|found| found == t));
@@ -150,12 +152,10 @@ fn check_dockerfile(path: &PathBuf, signals: &mut QualitySignals) {
 
     let upper = content.to_uppercase();
     let has_from = upper.lines().any(|l| l.trim_start().starts_with("FROM "));
-    let has_action = upper
-        .lines()
-        .any(|l| {
-            let t = l.trim_start();
-            t.starts_with("RUN ") || t.starts_with("CMD ") || t.starts_with("ENTRYPOINT ")
-        });
+    let has_action = upper.lines().any(|l| {
+        let t = l.trim_start();
+        t.starts_with("RUN ") || t.starts_with("CMD ") || t.starts_with("ENTRYPOINT ")
+    });
 
     signals.dockerfile_has_useful_commands = has_from && has_action;
 }
@@ -216,8 +216,8 @@ fn check_lockfile_freshness(configs: &[DetectedConfig]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::language::Language;
+    use super::*;
 
     #[test]
     fn build_seconds_rust_project() {
@@ -229,7 +229,11 @@ mod tests {
         }];
         let secs = estimate_build_seconds(&breakdown, 5000);
         assert!(secs > 1.0, "Rust 5k lines should take >1s, got {:.1}", secs);
-        assert!(secs < 20.0, "Rust 5k lines should take <20s, got {:.1}", secs);
+        assert!(
+            secs < 20.0,
+            "Rust 5k lines should take <20s, got {:.1}",
+            secs
+        );
     }
 
     #[test]
@@ -241,7 +245,11 @@ mod tests {
             total_bytes: 300000,
         }];
         let secs = estimate_build_seconds(&breakdown, 10000);
-        assert!(secs < 1.0, "Python 10k lines should take <1s, got {:.1}", secs);
+        assert!(
+            secs < 1.0,
+            "Python 10k lines should take <1s, got {:.1}",
+            secs
+        );
     }
 
     #[test]
