@@ -51,12 +51,10 @@ pub fn analyze(
         return None;
     }
 
-    let window_days = match months_override {
-        Some(m) => m * 30,
-        None => match repo_age_days(repo_path) {
-            Some(age) => auto_window_days(age),
-            None => 180,
-        },
+    let max_days = months_override.unwrap_or(1) * 30;
+    let window_days = match repo_age_days(repo_path) {
+        Some(age) => auto_window_days(age, max_days),
+        None => max_days,
     };
 
     let file_commits = git_file_frequency_days(repo_path, window_days)?;
@@ -155,12 +153,11 @@ fn repo_age_days(repo_path: &Path) -> Option<u32> {
     Some((age_secs / 86400) as u32)
 }
 
-/// Scale the lookback window to ~1/3 of repo age with a 7-day floor.
-/// Young repos get a tight window so scaffolding separates from active code.
-/// Old repos naturally get longer windows — a file untouched for 1/3 of a
-/// project's life is genuinely frozen.
-pub fn auto_window_days(repo_age: u32) -> u32 {
-    (repo_age / 3).max(7)
+/// Scale the lookback window to ~1/3 of repo age, clamped between 7 days
+/// and `max_days` (default 30). What matters for an LLM agent is the code
+/// being actively worked on right now, not months ago.
+pub fn auto_window_days(repo_age: u32, max_days: u32) -> u32 {
+    (repo_age / 3).clamp(7, max_days)
 }
 
 fn format_window(days: u32) -> String {
@@ -391,36 +388,37 @@ src/main.rs
 
     #[test]
     fn auto_window_young_repo() {
-        // 2-week-old repo (14 days) → window = 14/3 = 4, clamped to min 7
-        assert_eq!(auto_window_days(14), 7);
+        // 2-week-old repo → 14/3 = 4, clamped to min 7
+        assert_eq!(auto_window_days(14, 30), 7);
     }
 
     #[test]
     fn auto_window_one_month_repo() {
-        assert_eq!(auto_window_days(30), 10);
+        assert_eq!(auto_window_days(30, 30), 10);
     }
 
     #[test]
     fn auto_window_three_month_repo() {
-        assert_eq!(auto_window_days(90), 30);
+        // 90/3 = 30, capped at default 30
+        assert_eq!(auto_window_days(90, 30), 30);
     }
 
     #[test]
-    fn auto_window_one_year_repo() {
-        // 365/3 = 121 days (~4 months)
-        assert_eq!(auto_window_days(365), 121);
+    fn auto_window_old_repo_capped() {
+        // 2-year repo → 730/3 = 243, capped at default 30
+        assert_eq!(auto_window_days(730, 30), 30);
     }
 
     #[test]
-    fn auto_window_old_repo_no_cap() {
-        // 2-year repo (730 days) → 730/3 = 243 days (~8 months), no cap
-        assert_eq!(auto_window_days(730), 243);
+    fn auto_window_custom_cap() {
+        // user passes --git-months 6 → max 180 days
+        assert_eq!(auto_window_days(730, 180), 180);
     }
 
     #[test]
-    fn auto_window_very_old_repo() {
-        // 5-year repo (1825 days) → 608 days (~20 months)
-        assert_eq!(auto_window_days(1825), 608);
+    fn auto_window_custom_cap_small() {
+        // user passes --git-months 1 → 30 days on a 1-year repo
+        assert_eq!(auto_window_days(365, 30), 30);
     }
 
     #[test]

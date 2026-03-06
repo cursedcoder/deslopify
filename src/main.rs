@@ -43,7 +43,7 @@ pub struct Cli {
     #[arg(long)]
     no_git: bool,
 
-    /// Override the auto-scaled git lookback window (in months)
+    /// Max git lookback window in months (default: 1)
     #[arg(long)]
     git_months: Option<u32>,
 }
