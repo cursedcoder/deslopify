@@ -69,6 +69,11 @@ const OUTPUT_STEMS: &[&str] = &[
     "render", "ui", "view", "app",
 ];
 
+const OUTPUT_PARENT_DIRS: &[&str] = &[
+    "output", "display", "cli", "ui", "views", "view",
+    "console", "render", "print", "logging",
+];
+
 const TEST_PARENT_DIRS: &[&str] = &[
     "test", "tests", "spec", "specs", "__tests__",
 ];
@@ -117,7 +122,20 @@ fn should_skip_context_sensitive(path: &Path) -> bool {
         .unwrap_or("")
         .to_lowercase();
 
-    OUTPUT_STEMS.iter().any(|&s| stem == s)
+    if OUTPUT_STEMS.iter().any(|&s| stem == s) {
+        return true;
+    }
+
+    if let Some(parent) = path.parent() {
+        if let Some(dir_name) = parent.file_name().and_then(|n| n.to_str()) {
+            let dir_lower = dir_name.to_lowercase();
+            if OUTPUT_PARENT_DIRS.iter().any(|&d| dir_lower == d) {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 pub fn detect_patterns(files: &[&FileEntry]) -> Vec<PatternMatch> {
@@ -319,6 +337,26 @@ mod tests {
         assert!(
             !matches.iter().any(|m| m.pattern_name == "debug_print"),
             "Should not flag println! in output-focused modules"
+        );
+    }
+
+    #[test]
+    fn skips_debug_print_in_output_directory() {
+        let file = make_file_at("src/output/terminal.rs", "println!(\"result: {}\", score);\n");
+        let matches = detect_patterns(&[&file]);
+        assert!(
+            !matches.iter().any(|m| m.pattern_name == "debug_print"),
+            "Should not flag println! in files under output/ directory"
+        );
+    }
+
+    #[test]
+    fn skips_debug_print_in_views_directory() {
+        let file = make_file_at("app/views/home.py", "print(render_template())\n");
+        let matches = detect_patterns(&[&file]);
+        assert!(
+            !matches.iter().any(|m| m.pattern_name == "debug_print"),
+            "Should not flag print in files under views/ directory"
         );
     }
 
