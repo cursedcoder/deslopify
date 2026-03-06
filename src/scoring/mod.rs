@@ -38,13 +38,13 @@ pub struct ScoreResult {
 
 /// Compute a multiplier [0.0, 1.0] that reflects how much of the usable context
 /// window the codebase fills. Small projects that fit easily in context get a low
-/// multiplier, pulling the overall score toward 0.  The sqrt curve means a project
-/// using 25% of context keeps 50% of its score, while one at 100%+ keeps the full
-/// score.
+/// multiplier, pulling the overall score toward 0.  The 1.5-power curve means a
+/// project using 20% of context keeps ~9% of its score, while one at 50% keeps
+/// ~35%. Projects at or above 100% keep the full score.
 pub fn size_multiplier(total_bytes: u64) -> f64 {
     let estimated_tokens = total_bytes as f64 / context_budget::CHARS_PER_TOKEN as f64;
     let context_ratio = estimated_tokens / context_budget::USABLE_CONTEXT as f64;
-    context_ratio.sqrt().min(1.0)
+    context_ratio.powf(1.5).min(1.0)
 }
 
 pub fn score(scan: &ScanResult, analysis: &AnalysisResult) -> ScoreResult {
@@ -220,8 +220,8 @@ mod tests {
         // ~1000 lines * 10 chars = 10k bytes -> ~2500 tokens -> ratio ~0.014
         let mult = size_multiplier(10_000);
         assert!(
-            mult < 0.2,
-            "Tiny project should have multiplier < 0.2, got {:.3}",
+            mult < 0.01,
+            "Tiny project should have multiplier < 0.01, got {:.4}",
             mult
         );
         assert!(mult > 0.0, "Multiplier should be positive");
@@ -232,24 +232,41 @@ mod tests {
         // ~70k bytes -> ~17.5k tokens -> ratio ~0.1
         let mult = size_multiplier(70_000);
         assert!(
-            mult < 0.4,
-            "Small project should have multiplier < 0.4, got {:.3}",
-            mult
-        );
-        assert!(
-            mult > 0.15,
-            "Small project should have multiplier > 0.15, got {:.3}",
+            mult < 0.05,
+            "Small project should have multiplier < 0.05, got {:.4}",
             mult
         );
     }
 
     #[test]
-    fn size_multiplier_medium_project() {
-        // ~700k bytes -> ~175k tokens -> ratio ~1.0
-        let mult = size_multiplier(700_000);
+    fn size_multiplier_quarter_context() {
+        // ~176k bytes -> ~44k tokens -> ratio ~0.25
+        let mult = size_multiplier(176_000);
         assert!(
-            mult > 0.9,
-            "Medium project near context limit should have multiplier > 0.9, got {:.3}",
+            mult < 0.15,
+            "Quarter-context project should have multiplier < 0.15, got {:.3}",
+            mult
+        );
+    }
+
+    #[test]
+    fn size_multiplier_half_context() {
+        // ~352k bytes -> ~88k tokens -> ratio ~0.5
+        let mult = size_multiplier(352_000);
+        assert!(
+            mult > 0.3 && mult < 0.4,
+            "Half-context project should have multiplier ~0.35, got {:.3}",
+            mult
+        );
+    }
+
+    #[test]
+    fn size_multiplier_full_context() {
+        // ~704k bytes -> ~176k tokens -> ratio ~1.0
+        let mult = size_multiplier(704_000);
+        assert!(
+            mult > 0.95,
+            "Full-context project should have multiplier ~1.0, got {:.3}",
             mult
         );
     }
