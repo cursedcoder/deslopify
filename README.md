@@ -16,10 +16,32 @@ A codebase scoring 80 means an LLM agent burns most of its context just figuring
 
 It runs **pure static analysis** — tree-sitter AST parsing, file stats, config detection, import graph analysis — with zero LLM calls and zero tokens spent.
 
-## Quick Start
+## Quick Install
 
 ```bash
+# macOS (Apple Silicon)
+curl -sSL https://github.com/cursedcoder/deslopify/releases/latest/download/deslopify-v0.1.0-aarch64-apple-darwin.tar.gz | tar xz
+sudo mv deslopify /usr/local/bin/
+
+# macOS (Intel)
+curl -sSL https://github.com/cursedcoder/deslopify/releases/latest/download/deslopify-v0.1.0-x86_64-apple-darwin.tar.gz | tar xz
+sudo mv deslopify /usr/local/bin/
+
+# Linux (x86_64)
+curl -sSL https://github.com/cursedcoder/deslopify/releases/latest/download/deslopify-v0.1.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
+sudo mv deslopify /usr/local/bin/
+
+# Linux (aarch64)
+curl -sSL https://github.com/cursedcoder/deslopify/releases/latest/download/deslopify-v0.1.0-aarch64-unknown-linux-gnu.tar.gz | tar xz
+sudo mv deslopify /usr/local/bin/
+
+# From source
 cargo install --path .
+```
+
+Then run:
+
+```bash
 deslopify .
 ```
 
@@ -49,19 +71,16 @@ TOP FIXES (by estimated index reduction)
 
 ## Installation
 
+### Pre-built binaries
+
+Grab the latest release from [GitHub Releases](https://github.com/cursedcoder/deslopify/releases).
+
 ### From source
 
 ```bash
-git clone https://github.com/yevheniihuselietov/deslopify.git
+git clone https://github.com/cursedcoder/deslopify.git
 cd deslopify
 cargo install --path .
-```
-
-### Build only
-
-```bash
-cargo build --release
-./target/release/deslopify /path/to/codebase
 ```
 
 ## Usage
@@ -75,6 +94,8 @@ deslopify --format json               # JSON report
 deslopify --format llm                # LLM-consumable fix instructions
 deslopify --ci --max-score 50         # Exit 1 if score > 50 (CI gate)
 deslopify --ignore "tests/*"          # Exclude patterns
+deslopify --no-git                    # Disable git history analysis
+deslopify --git-months 3              # Set git lookback window to 3 months
 ```
 
 ## Scoring Model
