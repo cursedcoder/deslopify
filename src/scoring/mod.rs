@@ -1,6 +1,5 @@
 pub mod context_budget;
 pub mod dimensions;
-pub mod model;
 
 use crate::analysis::AnalysisResult;
 use crate::scanner::ScanResult;
