@@ -27,7 +27,8 @@ struct ActiveSurfaceJson {
     active_bytes: u64,
     frozen_files: usize,
     frozen_bytes: u64,
-    window_months: u32,
+    window_days: u32,
+    window_label: String,
     total_commits: usize,
     hot_files: Vec<HotFileJson>,
 }
@@ -114,7 +115,8 @@ pub fn print(
                 active_bytes: g.active_bytes,
                 frozen_files: g.frozen_files,
                 frozen_bytes: g.frozen_bytes,
-                window_months: g.window_months,
+                window_days: g.window_days,
+                window_label: g.window_label.clone(),
                 total_commits: g.total_commits,
                 hot_files: g
                     .hot_files

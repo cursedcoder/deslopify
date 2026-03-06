@@ -300,7 +300,8 @@ mod tests {
             frozen_bytes: 670_000,
             hot_files: Vec::new(),
             total_commits: 100,
-            window_months: 6,
+            window_days: 180,
+            window_label: "6 months".to_string(),
         };
         let with_git = size_multiplier(700_000, Some(&git));
         let without_git = size_multiplier(700_000, None);

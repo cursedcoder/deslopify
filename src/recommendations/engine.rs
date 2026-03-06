@@ -280,9 +280,9 @@ fn extract_libraries(scan: &ScanResult, recs: &mut Vec<Recommendation>) {
         priority: 0,
         estimated_reduction: reduction,
         title: format!(
-            "Extract libraries to shrink active surface ({:.0}% of files changed in {} months)",
+            "Extract libraries to shrink active surface ({:.0}% of files changed in last {})",
             active_pct * 100.0,
-            git.window_months
+            git.window_label
         ),
         target: "project architecture".to_string(),
         action: format!(

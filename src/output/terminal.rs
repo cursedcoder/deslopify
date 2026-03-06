@@ -97,11 +97,11 @@ fn print_summary(scan: &ScanResult) {
                 0.0
             };
             println!(
-                "    Active surface: {} files ({:.0}%), {} lines changed in last {} months",
+                "    Active surface: {} files ({:.0}%), {} lines changed in last {}",
                 git.active_files,
                 pct,
                 format_number(git.active_lines),
-                git.window_months
+                git.window_label
             );
 
             let top: Vec<String> = git

@@ -21,7 +21,8 @@ pub struct GitActivity {
     pub frozen_bytes: u64,
     pub hot_files: Vec<HotFile>,
     pub total_commits: usize,
-    pub window_months: u32,
+    pub window_days: u32,
+    pub window_label: String,
 }
 
 impl Default for GitActivity {
@@ -35,19 +36,29 @@ impl Default for GitActivity {
             frozen_bytes: 0,
             hot_files: Vec::new(),
             total_commits: 0,
-            window_months: 6,
+            window_days: 180,
+            window_label: "6 months".to_string(),
         }
     }
 }
 
-pub fn analyze(repo_path: &Path, files: &[FileEntry], window_months: u32) -> Option<GitActivity> {
+pub fn analyze(
+    repo_path: &Path,
+    files: &[FileEntry],
+    max_window_months: u32,
+) -> Option<GitActivity> {
     if !repo_path.join(".git").exists() && !has_git_dir(repo_path) {
         return None;
     }
 
-    let file_commits = git_file_frequency(repo_path, window_months)?;
+    let max_days = max_window_months * 30;
+    let window_days = match repo_age_days(repo_path) {
+        Some(age) => auto_window_days(age, max_days),
+        None => max_days,
+    };
 
-    let total_commits = count_commits(repo_path, window_months).unwrap_or(0);
+    let file_commits = git_file_frequency_days(repo_path, window_days)?;
+    let total_commits = count_commits_days(repo_path, window_days).unwrap_or(0);
 
     let mut active_files = 0usize;
     let mut active_lines = 0usize;
@@ -88,7 +99,8 @@ pub fn analyze(repo_path: &Path, files: &[FileEntry], window_months: u32) -> Opt
         frozen_bytes,
         hot_files: hot,
         total_commits,
-        window_months,
+        window_days,
+        window_label: format_window(window_days),
     })
 }
 
@@ -100,9 +112,67 @@ fn has_git_dir(path: &Path) -> bool {
     matches!(output, Ok(o) if o.status.success())
 }
 
-/// Run `git log` to get per-file commit counts within the time window.
-fn git_file_frequency(repo_path: &Path, months: u32) -> Option<HashMap<PathBuf, usize>> {
-    let since = format!("{} months ago", months);
+/// Get the repo age in days from the first (root) commit.
+fn repo_age_days(repo_path: &Path) -> Option<u32> {
+    let root = Command::new("git")
+        .args(["rev-list", "--max-parents=0", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .ok()?;
+
+    if !root.status.success() {
+        return None;
+    }
+
+    let root_hash = String::from_utf8_lossy(&root.stdout)
+        .lines()
+        .next()?
+        .trim()
+        .to_string();
+
+    let ts_output = Command::new("git")
+        .args(["log", "-1", "--format=%at", &root_hash])
+        .current_dir(repo_path)
+        .output()
+        .ok()?;
+
+    if !ts_output.status.success() {
+        return None;
+    }
+
+    let timestamp: u64 = String::from_utf8_lossy(&ts_output.stdout)
+        .trim()
+        .parse()
+        .ok()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+
+    let age_secs = now.saturating_sub(timestamp);
+    Some((age_secs / 86400) as u32)
+}
+
+/// Scale the lookback window to ~1/3 of repo age, clamped between 7 days
+/// and the user-configured max. Young repos get a tight window so initial
+/// scaffolding files can separate from actively-worked code.
+pub fn auto_window_days(repo_age_days: u32, max_days: u32) -> u32 {
+    let scaled = repo_age_days / 3;
+    scaled.clamp(7, max_days)
+}
+
+fn format_window(days: u32) -> String {
+    if days < 14 {
+        format!("{} days", days)
+    } else if days < 60 {
+        format!("{} weeks", days / 7)
+    } else {
+        format!("{} months", days / 30)
+    }
+}
+
+fn git_file_frequency_days(repo_path: &Path, days: u32) -> Option<HashMap<PathBuf, usize>> {
+    let since = format!("{} days ago", days);
     let output = Command::new("git")
         .args([
             "log",
@@ -134,10 +204,15 @@ fn git_file_frequency(repo_path: &Path, months: u32) -> Option<HashMap<PathBuf, 
     Some(counts)
 }
 
-fn count_commits(repo_path: &Path, months: u32) -> Option<usize> {
-    let since = format!("{} months ago", months);
+fn count_commits_days(repo_path: &Path, days: u32) -> Option<usize> {
     let output = Command::new("git")
-        .args(["rev-list", "--count", "--since", &since, "HEAD"])
+        .args([
+            "rev-list",
+            "--count",
+            "--since",
+            &format!("{} days ago", days),
+            "HEAD",
+        ])
         .current_dir(repo_path)
         .output()
         .ok()?;
@@ -310,6 +385,55 @@ src/main.rs
         assert_eq!(active_bytes, 0);
         assert_eq!(frozen_count, 1);
         assert!(hot.is_empty());
+    }
+
+    #[test]
+    fn auto_window_young_repo() {
+        // 2-week-old repo (14 days) → window = 14/3 = 4, clamped to min 7
+        assert_eq!(auto_window_days(14, 180), 7);
+    }
+
+    #[test]
+    fn auto_window_one_month_repo() {
+        // 30-day repo → window = 10 days
+        assert_eq!(auto_window_days(30, 180), 10);
+    }
+
+    #[test]
+    fn auto_window_three_month_repo() {
+        // 90-day repo → window = 30 days
+        assert_eq!(auto_window_days(90, 180), 30);
+    }
+
+    #[test]
+    fn auto_window_old_repo() {
+        // 2-year repo (730 days) → 730/3 = 243, capped at max 180
+        assert_eq!(auto_window_days(730, 180), 180);
+    }
+
+    #[test]
+    fn auto_window_respects_user_max() {
+        // 1-year repo, user set --git-months 1 (30 days max)
+        assert_eq!(auto_window_days(365, 30), 30);
+    }
+
+    #[test]
+    fn format_window_days() {
+        assert_eq!(format_window(7), "7 days");
+        assert_eq!(format_window(13), "13 days");
+    }
+
+    #[test]
+    fn format_window_weeks() {
+        assert_eq!(format_window(14), "2 weeks");
+        assert_eq!(format_window(30), "4 weeks");
+        assert_eq!(format_window(56), "8 weeks");
+    }
+
+    #[test]
+    fn format_window_months() {
+        assert_eq!(format_window(60), "2 months");
+        assert_eq!(format_window(180), "6 months");
     }
 
     #[test]
