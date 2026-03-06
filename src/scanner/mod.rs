@@ -90,14 +90,14 @@ pub struct ScanResult {
 }
 
 pub fn scan(paths: &[PathBuf], ignore_patterns: &[String]) -> ScanResult {
-    scan_with_git(paths, ignore_patterns, true, 6)
+    scan_with_git(paths, ignore_patterns, true, None)
 }
 
 pub fn scan_with_git(
     paths: &[PathBuf],
     ignore_patterns: &[String],
     enable_git: bool,
-    git_months: u32,
+    git_months_override: Option<u32>,
 ) -> ScanResult {
     let entries = walker::walk(paths, ignore_patterns);
     let files: Vec<FileEntry> = entries
@@ -145,7 +145,7 @@ pub fn scan_with_git(
     let git_activity = if enable_git {
         paths.first().and_then(|p| {
             let repo_root = p.canonicalize().unwrap_or_else(|_| p.clone());
-            git::analyze(&repo_root, &files, git_months)
+            git::analyze(&repo_root, &files, git_months_override)
         })
     } else {
         None

@@ -43,9 +43,9 @@ pub struct Cli {
     #[arg(long)]
     no_git: bool,
 
-    /// Lookback window for git activity in months (default: 6)
-    #[arg(long, default_value = "6")]
-    git_months: u32,
+    /// Override the auto-scaled git lookback window (in months)
+    #[arg(long)]
+    git_months: Option<u32>,
 }
 
 fn main() {
