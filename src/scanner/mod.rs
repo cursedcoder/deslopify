@@ -1,4 +1,5 @@
 pub mod config;
+pub mod git;
 pub mod language;
 pub mod quality;
 pub mod stats;
@@ -76,6 +77,7 @@ pub struct ScanResult {
     pub language_breakdown: Vec<LanguageBreakdown>,
     pub configs: Vec<DetectedConfig>,
     pub quality: quality::QualitySignals,
+    pub git_activity: Option<git::GitActivity>,
     pub total_files: usize,
     pub total_lines: usize,
     pub total_bytes: u64,
@@ -88,6 +90,15 @@ pub struct ScanResult {
 }
 
 pub fn scan(paths: &[PathBuf], ignore_patterns: &[String]) -> ScanResult {
+    scan_with_git(paths, ignore_patterns, true, 6)
+}
+
+pub fn scan_with_git(
+    paths: &[PathBuf],
+    ignore_patterns: &[String],
+    enable_git: bool,
+    git_months: u32,
+) -> ScanResult {
     let entries = walker::walk(paths, ignore_patterns);
     let files: Vec<FileEntry> = entries
         .into_iter()
@@ -131,11 +142,21 @@ pub fn scan(paths: &[PathBuf], ignore_patterns: &[String]) -> ScanResult {
 
     let quality_signals = quality::compute(&configs, &language_breakdown, total_lines);
 
+    let git_activity = if enable_git {
+        paths.first().and_then(|p| {
+            let repo_root = p.canonicalize().unwrap_or_else(|_| p.clone());
+            git::analyze(&repo_root, &files, git_months)
+        })
+    } else {
+        None
+    };
+
     ScanResult {
         files,
         language_breakdown,
         configs,
         quality: quality_signals,
+        git_activity,
         total_files,
         total_lines,
         total_bytes,

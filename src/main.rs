@@ -38,12 +38,25 @@ pub struct Cli {
     /// Show estimated context-window token costs
     #[arg(long)]
     context_budget: bool,
+
+    /// Disable git history analysis
+    #[arg(long)]
+    no_git: bool,
+
+    /// Lookback window for git activity in months (default: 6)
+    #[arg(long, default_value = "6")]
+    git_months: u32,
 }
 
 fn main() {
     let cli = Cli::parse();
 
-    let scan_result = scanner::scan(&cli.paths, &cli.ignore);
+    let scan_result = scanner::scan_with_git(
+        &cli.paths,
+        &cli.ignore,
+        !cli.no_git,
+        cli.git_months,
+    );
     let analysis_result = analysis::analyze(&scan_result);
     let score_result = scoring::score(&scan_result, &analysis_result);
     let recs = recommendations::generate(&score_result, &scan_result, &analysis_result);

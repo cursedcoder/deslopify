@@ -89,6 +89,36 @@ fn print_summary(scan: &ScanResult) {
         .collect();
     println!("    {}", langs.join(", "));
 
+    if let Some(ref git) = scan.git_activity {
+        if git.is_git_repo && git.active_files > 0 {
+            let pct = if scan.total_files > 0 {
+                git.active_files as f64 / scan.total_files as f64 * 100.0
+            } else {
+                0.0
+            };
+            println!(
+                "    Active surface: {} files ({:.0}%), {} lines changed in last {} months",
+                git.active_files,
+                pct,
+                format_number(git.active_lines),
+                git.window_months
+            );
+
+            let top: Vec<String> = git
+                .hot_files
+                .iter()
+                .take(3)
+                .map(|h| {
+                    let name = h.path.file_name().unwrap_or_default().to_string_lossy();
+                    format!("{} ({} commits)", name, h.commit_count)
+                })
+                .collect();
+            if !top.is_empty() {
+                println!("    Hot files: {}", top.join(", "));
+            }
+        }
+    }
+
     let configs: Vec<String> = {
         let mut seen = std::collections::HashSet::new();
         scan.configs

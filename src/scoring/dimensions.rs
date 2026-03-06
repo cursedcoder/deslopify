@@ -468,8 +468,11 @@ fn dependency_boundaries(scan: &ScanResult) -> DimensionScore {
 fn context_pressure(scan: &ScanResult, analysis: &AnalysisResult) -> DimensionScore {
     let mut rating = 0u32;
 
-    // Total codebase token estimate (~4 chars per token)
-    let estimated_tokens = scan.total_bytes / 4;
+    let effective_bytes = match &scan.git_activity {
+        Some(g) if g.is_git_repo && g.active_files > 0 => g.active_bytes,
+        _ => scan.total_bytes,
+    };
+    let estimated_tokens = effective_bytes / 4;
 
     if estimated_tokens > 500_000 {
         rating += 2;
@@ -489,13 +492,25 @@ fn context_pressure(scan: &ScanResult, analysis: &AnalysisResult) -> DimensionSc
 
     rating = rating.min(5);
 
-    let evidence = format!(
-        "~{} estimated tokens, avg function {} lines, max function {} lines, max nesting depth {}",
-        format_tokens(estimated_tokens as usize),
-        analysis.avg_function_lines,
-        analysis.max_function_lines,
-        analysis.max_nesting_depth
-    );
+    let total_tokens = scan.total_bytes / 4;
+    let evidence = if effective_bytes < scan.total_bytes {
+        format!(
+            "~{} active tokens (~{} total), avg function {} lines, max function {} lines, max nesting depth {}",
+            format_tokens(estimated_tokens as usize),
+            format_tokens(total_tokens as usize),
+            analysis.avg_function_lines,
+            analysis.max_function_lines,
+            analysis.max_nesting_depth
+        )
+    } else {
+        format!(
+            "~{} estimated tokens, avg function {} lines, max function {} lines, max nesting depth {}",
+            format_tokens(estimated_tokens as usize),
+            analysis.avg_function_lines,
+            analysis.max_function_lines,
+            analysis.max_nesting_depth
+        )
+    };
 
     DimensionScore {
         name: "Context pressure".to_string(),

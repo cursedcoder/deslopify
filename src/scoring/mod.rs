@@ -36,13 +36,16 @@ pub struct ScoreResult {
     pub context_budget: ContextBudget,
 }
 
-/// Compute a multiplier [0.0, 1.0] that reflects how much of the usable context
-/// window the codebase fills. Small projects that fit easily in context get a low
-/// multiplier, pulling the overall score toward 0.  The 1.5-power curve means a
-/// project using 20% of context keeps ~9% of its score, while one at 50% keeps
-/// ~35%. Projects at or above 100% keep the full score.
-pub fn size_multiplier(total_bytes: u64) -> f64 {
-    let estimated_tokens = total_bytes as f64 / context_budget::CHARS_PER_TOKEN as f64;
+/// Compute a multiplier [0.0, 1.0] based on the effective codebase size relative
+/// to the usable context window. When git data is available, uses active surface
+/// bytes (files changed in the lookback window) instead of total bytes — frozen
+/// code is like a library the agent reads but doesn't modify.
+pub fn size_multiplier(total_bytes: u64, git: Option<&crate::scanner::git::GitActivity>) -> f64 {
+    let effective_bytes = match git {
+        Some(g) if g.is_git_repo && g.active_files > 0 => g.active_bytes,
+        _ => total_bytes,
+    };
+    let estimated_tokens = effective_bytes as f64 / context_budget::CHARS_PER_TOKEN as f64;
     let context_ratio = estimated_tokens / context_budget::USABLE_CONTEXT as f64;
     context_ratio.powf(1.5).min(1.0)
 }
@@ -54,7 +57,7 @@ pub fn score(scan: &ScanResult, analysis: &AnalysisResult) -> ScoreResult {
         .map(|d| d.weight as f64 * d.rating as f64 / 5.0)
         .sum();
 
-    let mult = size_multiplier(scan.total_bytes);
+    let mult = size_multiplier(scan.total_bytes, scan.git_activity.as_ref());
     let adjusted = raw_score * mult;
     let slop_index = (adjusted.round() as u32).min(100);
 
@@ -217,8 +220,7 @@ mod tests {
 
     #[test]
     fn size_multiplier_tiny_project() {
-        // ~1000 lines * 10 chars = 10k bytes -> ~2500 tokens -> ratio ~0.014
-        let mult = size_multiplier(10_000);
+        let mult = size_multiplier(10_000, None);
         assert!(
             mult < 0.01,
             "Tiny project should have multiplier < 0.01, got {:.4}",
@@ -229,8 +231,7 @@ mod tests {
 
     #[test]
     fn size_multiplier_small_project() {
-        // ~70k bytes -> ~17.5k tokens -> ratio ~0.1
-        let mult = size_multiplier(70_000);
+        let mult = size_multiplier(70_000, None);
         assert!(
             mult < 0.05,
             "Small project should have multiplier < 0.05, got {:.4}",
@@ -240,8 +241,7 @@ mod tests {
 
     #[test]
     fn size_multiplier_quarter_context() {
-        // ~176k bytes -> ~44k tokens -> ratio ~0.25
-        let mult = size_multiplier(176_000);
+        let mult = size_multiplier(176_000, None);
         assert!(
             mult < 0.15,
             "Quarter-context project should have multiplier < 0.15, got {:.3}",
@@ -251,8 +251,7 @@ mod tests {
 
     #[test]
     fn size_multiplier_half_context() {
-        // ~352k bytes -> ~88k tokens -> ratio ~0.5
-        let mult = size_multiplier(352_000);
+        let mult = size_multiplier(352_000, None);
         assert!(
             mult > 0.3 && mult < 0.4,
             "Half-context project should have multiplier ~0.35, got {:.3}",
@@ -262,8 +261,7 @@ mod tests {
 
     #[test]
     fn size_multiplier_full_context() {
-        // ~704k bytes -> ~176k tokens -> ratio ~1.0
-        let mult = size_multiplier(704_000);
+        let mult = size_multiplier(704_000, None);
         assert!(
             mult > 0.95,
             "Full-context project should have multiplier ~1.0, got {:.3}",
@@ -273,8 +271,7 @@ mod tests {
 
     #[test]
     fn size_multiplier_large_project() {
-        // 4MB -> 1M tokens -> ratio ~5.7
-        let mult = size_multiplier(4_000_000);
+        let mult = size_multiplier(4_000_000, None);
         assert!(
             (mult - 1.0).abs() < f64::EPSILON,
             "Large project should have multiplier exactly 1.0, got {:.3}",
@@ -284,10 +281,33 @@ mod tests {
 
     #[test]
     fn size_multiplier_zero_bytes() {
-        let mult = size_multiplier(0);
+        let mult = size_multiplier(0, None);
         assert!(
             (mult - 0.0).abs() < f64::EPSILON,
             "Empty project should have multiplier 0.0"
+        );
+    }
+
+    #[test]
+    fn size_multiplier_uses_active_bytes_from_git() {
+        use crate::scanner::git::GitActivity;
+        let git = GitActivity {
+            is_git_repo: true,
+            active_files: 10,
+            active_lines: 1000,
+            active_bytes: 30_000,
+            frozen_files: 50,
+            frozen_bytes: 670_000,
+            hot_files: Vec::new(),
+            total_commits: 100,
+            window_months: 6,
+        };
+        let with_git = size_multiplier(700_000, Some(&git));
+        let without_git = size_multiplier(700_000, None);
+        assert!(
+            with_git < without_git * 0.1,
+            "Git active surface (30k) should produce much smaller multiplier than total (700k): {:.4} vs {:.4}",
+            with_git, without_git
         );
     }
 

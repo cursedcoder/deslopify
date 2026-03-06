@@ -15,6 +15,14 @@ pub fn print(score: &ScoreResult, recs: &[Recommendation], scan: &ScanResult) {
         scan.total_lines,
         scan.language_breakdown.len()
     );
+    if let Some(ref git) = scan.git_activity {
+        if git.is_git_repo && git.active_files > 0 {
+            println!(
+                "Active surface: {} files, {} lines (changed in last {} months). {} files frozen.",
+                git.active_files, git.active_lines, git.window_months, git.frozen_files
+            );
+        }
+    }
     println!();
     println!(
         "Context budget: ~{} tokens navigation cost ({:.1}% of usable context).",

@@ -15,7 +15,28 @@ struct JsonReport<'a> {
     context_budget: &'a crate::scoring::ContextBudget,
     recommendations: &'a [Recommendation],
     summary: SummaryJson,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    active_surface: Option<ActiveSurfaceJson>,
     duplicates: DuplicatesJson,
+}
+
+#[derive(Serialize)]
+struct ActiveSurfaceJson {
+    active_files: usize,
+    active_lines: usize,
+    active_bytes: u64,
+    frozen_files: usize,
+    frozen_bytes: u64,
+    window_months: u32,
+    total_commits: usize,
+    hot_files: Vec<HotFileJson>,
+}
+
+#[derive(Serialize)]
+struct HotFileJson {
+    path: String,
+    commit_count: usize,
+    lines: usize,
 }
 
 #[derive(Serialize)]
@@ -83,6 +104,29 @@ pub fn print(
                 .map(|c| format!("{}: {}", c.kind.label(), c.path.display()))
                 .collect(),
         },
+        active_surface: scan.git_activity.as_ref().and_then(|g| {
+            if !g.is_git_repo || g.active_files == 0 {
+                return None;
+            }
+            Some(ActiveSurfaceJson {
+                active_files: g.active_files,
+                active_lines: g.active_lines,
+                active_bytes: g.active_bytes,
+                frozen_files: g.frozen_files,
+                frozen_bytes: g.frozen_bytes,
+                window_months: g.window_months,
+                total_commits: g.total_commits,
+                hot_files: g
+                    .hot_files
+                    .iter()
+                    .map(|h| HotFileJson {
+                        path: h.path.display().to_string(),
+                        commit_count: h.commit_count,
+                        lines: h.lines,
+                    })
+                    .collect(),
+            })
+        }),
         duplicates: DuplicatesJson {
             cluster_count: analysis.duplicates.len(),
             total_duplicate_lines: analysis
