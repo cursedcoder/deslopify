@@ -118,3 +118,111 @@ pub fn count_global_mutables(files: &[&FileEntry]) -> usize {
 
     count
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scanner::language::Language;
+    use std::path::PathBuf;
+
+    fn make_file(content: &str) -> FileEntry {
+        FileEntry {
+            path: PathBuf::from("test.py"),
+            language: Language::Python,
+            size_bytes: content.len() as u64,
+            line_count: content.lines().count(),
+            content: content.to_string(),
+        }
+    }
+
+    #[test]
+    fn detects_todo() {
+        let file = make_file("# TODO: fix this\nx = 1\n");
+        let matches = detect_patterns(&[&file]);
+        assert!(matches.iter().any(|m| m.pattern_name == "todo_placeholder"));
+    }
+
+    #[test]
+    fn detects_fixme() {
+        let file = make_file("// FIXME: broken\n");
+        let matches = detect_patterns(&[&file]);
+        assert!(matches.iter().any(|m| m.pattern_name == "todo_placeholder"));
+    }
+
+    #[test]
+    fn detects_debug_print_python() {
+        let file = make_file("print('debug')\nx = 1\n");
+        let matches = detect_patterns(&[&file]);
+        assert!(matches.iter().any(|m| m.pattern_name == "debug_print"));
+    }
+
+    #[test]
+    fn detects_console_log() {
+        let file = make_file("  console.log('test')\n");
+        let matches = detect_patterns(&[&file]);
+        assert!(matches.iter().any(|m| m.pattern_name == "debug_print"));
+    }
+
+    #[test]
+    fn detects_bare_except() {
+        let file = make_file("try:\n    pass\nexcept:\n    pass\n");
+        let matches = detect_patterns(&[&file]);
+        assert!(matches.iter().any(|m| m.pattern_name == "bare_except"));
+    }
+
+    #[test]
+    fn detects_star_import() {
+        let file = make_file("from os import *\n");
+        let matches = detect_patterns(&[&file]);
+        assert!(matches.iter().any(|m| m.pattern_name == "star_import"));
+    }
+
+    #[test]
+    fn detects_commented_code() {
+        let file = make_file("# if x > 0:\n#     return True\n");
+        let matches = detect_patterns(&[&file]);
+        assert!(matches.iter().any(|m| m.pattern_name == "commented_code"));
+    }
+
+    #[test]
+    fn clean_code_no_patterns() {
+        let file = make_file("def add(a, b):\n    return a + b\n");
+        let matches = detect_patterns(&[&file]);
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn global_mutable_detection() {
+        let file = make_file("GLOBAL_LIST = [\n    1, 2, 3\n]\nGLOBAL_MAP = {\n}\n");
+        let count = count_global_mutables(&[&file]);
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn global_mutable_ignores_indented() {
+        let file = make_file("    var x = 1\n    let y = 2\n");
+        let count = count_global_mutables(&[&file]);
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn global_mutable_var_toplevel() {
+        let file = make_file("var globalState = {}\n");
+        let count = count_global_mutables(&[&file]);
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn global_mutable_static_mut() {
+        let file = make_file("static mut COUNTER: u32 = 0;\n");
+        let count = count_global_mutables(&[&file]);
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn no_global_mutables_in_clean_code() {
+        let file = make_file("fn main() {\n    let x = 1;\n}\n");
+        let count = count_global_mutables(&[&file]);
+        assert_eq!(count, 0);
+    }
+}

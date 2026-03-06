@@ -148,3 +148,101 @@ pub fn detect(path: &Path) -> Language {
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn detect_python() {
+        assert_eq!(detect(&PathBuf::from("main.py")), Language::Python);
+        assert_eq!(detect(&PathBuf::from("types.pyi")), Language::Python);
+    }
+
+    #[test]
+    fn detect_javascript_variants() {
+        assert_eq!(detect(&PathBuf::from("app.js")), Language::JavaScript);
+        assert_eq!(detect(&PathBuf::from("lib.mjs")), Language::JavaScript);
+        assert_eq!(detect(&PathBuf::from("config.cjs")), Language::JavaScript);
+    }
+
+    #[test]
+    fn detect_typescript_variants() {
+        assert_eq!(detect(&PathBuf::from("app.ts")), Language::TypeScript);
+        assert_eq!(detect(&PathBuf::from("app.tsx")), Language::Tsx);
+        assert_eq!(detect(&PathBuf::from("app.jsx")), Language::Jsx);
+    }
+
+    #[test]
+    fn detect_systems_languages() {
+        assert_eq!(detect(&PathBuf::from("main.rs")), Language::Rust);
+        assert_eq!(detect(&PathBuf::from("main.go")), Language::Go);
+        assert_eq!(detect(&PathBuf::from("Main.java")), Language::Java);
+        assert_eq!(detect(&PathBuf::from("main.c")), Language::C);
+        assert_eq!(detect(&PathBuf::from("main.h")), Language::C);
+        assert_eq!(detect(&PathBuf::from("main.cpp")), Language::Cpp);
+        assert_eq!(detect(&PathBuf::from("main.cc")), Language::Cpp);
+        assert_eq!(detect(&PathBuf::from("main.hpp")), Language::Cpp);
+    }
+
+    #[test]
+    fn detect_scripting_languages() {
+        assert_eq!(detect(&PathBuf::from("app.rb")), Language::Ruby);
+        assert_eq!(detect(&PathBuf::from("script.sh")), Language::Shell);
+        assert_eq!(detect(&PathBuf::from("script.lua")), Language::Lua);
+        assert_eq!(detect(&PathBuf::from("app.php")), Language::Php);
+        assert_eq!(detect(&PathBuf::from("app.ex")), Language::Elixir);
+    }
+
+    #[test]
+    fn detect_config_files() {
+        assert_eq!(detect(&PathBuf::from("config.toml")), Language::Toml);
+        assert_eq!(detect(&PathBuf::from("config.yml")), Language::Yaml);
+        assert_eq!(detect(&PathBuf::from("config.yaml")), Language::Yaml);
+        assert_eq!(detect(&PathBuf::from("data.json")), Language::Json);
+        assert_eq!(detect(&PathBuf::from("README.md")), Language::Markdown);
+    }
+
+    #[test]
+    fn detect_special_filenames() {
+        assert_eq!(detect(&PathBuf::from("Makefile")), Language::Shell);
+        assert_eq!(detect(&PathBuf::from("Dockerfile")), Language::Shell);
+    }
+
+    #[test]
+    fn detect_unknown() {
+        assert_eq!(detect(&PathBuf::from("data.bin")), Language::Unknown);
+        assert_eq!(detect(&PathBuf::from("file")), Language::Unknown);
+        assert_eq!(detect(&PathBuf::from("image.png")), Language::Unknown);
+    }
+
+    #[test]
+    fn is_source_code_excludes_config() {
+        assert!(!Language::Toml.is_source_code());
+        assert!(!Language::Yaml.is_source_code());
+        assert!(!Language::Json.is_source_code());
+        assert!(!Language::Markdown.is_source_code());
+        assert!(!Language::Unknown.is_source_code());
+    }
+
+    #[test]
+    fn is_source_code_includes_code() {
+        assert!(Language::Python.is_source_code());
+        assert!(Language::Rust.is_source_code());
+        assert!(Language::TypeScript.is_source_code());
+        assert!(Language::Go.is_source_code());
+        assert!(Language::Css.is_source_code());
+    }
+
+    #[test]
+    fn tree_sitter_support() {
+        assert!(Language::Python.has_tree_sitter_support());
+        assert!(Language::JavaScript.has_tree_sitter_support());
+        assert!(Language::Rust.has_tree_sitter_support());
+        assert!(Language::Go.has_tree_sitter_support());
+        assert!(!Language::Php.has_tree_sitter_support());
+        assert!(!Language::Shell.has_tree_sitter_support());
+        assert!(!Language::Unknown.has_tree_sitter_support());
+    }
+}

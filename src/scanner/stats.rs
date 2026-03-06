@@ -102,3 +102,70 @@ fn compute_depth_recursive(current: &Path, depth: usize, max_depth: &mut usize) 
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scanner::language::Language;
+    use crate::scanner::FileEntry;
+
+    fn make_file(path: &str, lang: Language, lines: usize) -> FileEntry {
+        let content = "x\n".repeat(lines);
+        FileEntry {
+            path: PathBuf::from(path),
+            language: lang,
+            size_bytes: content.len() as u64,
+            line_count: lines,
+            content,
+        }
+    }
+
+    #[test]
+    fn test_file_detection_by_directory() {
+        assert!(is_test_file(Path::new("src/tests/foo.py")));
+        assert!(is_test_file(Path::new("src/test/foo.py")));
+        assert!(is_test_file(Path::new("src/__tests__/foo.js")));
+        assert!(is_test_file(Path::new("spec/models/user_spec.rb")));
+    }
+
+    #[test]
+    fn test_file_detection_by_name() {
+        assert!(is_test_file(Path::new("test_utils.py")));
+        assert!(is_test_file(Path::new("utils_test.go")));
+        assert!(is_test_file(Path::new("utils_spec.rb")));
+        assert!(is_test_file(Path::new("conftest.py")));
+    }
+
+    #[test]
+    fn non_test_files() {
+        assert!(!is_test_file(Path::new("src/main.py")));
+        assert!(!is_test_file(Path::new("lib/utils.rs")));
+        assert!(!is_test_file(Path::new("app.tsx")));
+        assert!(!is_test_file(Path::new("testing_helpers.py")));
+    }
+
+    #[test]
+    fn language_breakdown_counts() {
+        let files = vec![
+            make_file("a.py", Language::Python, 100),
+            make_file("b.py", Language::Python, 200),
+            make_file("c.rs", Language::Rust, 50),
+        ];
+        let breakdown = compute_language_breakdown(&files);
+
+        assert_eq!(breakdown.len(), 2);
+        // Sorted by total_lines descending, so Python first
+        assert_eq!(breakdown[0].language, Language::Python);
+        assert_eq!(breakdown[0].file_count, 2);
+        assert_eq!(breakdown[0].total_lines, 300);
+        assert_eq!(breakdown[1].language, Language::Rust);
+        assert_eq!(breakdown[1].file_count, 1);
+        assert_eq!(breakdown[1].total_lines, 50);
+    }
+
+    #[test]
+    fn language_breakdown_empty() {
+        let breakdown = compute_language_breakdown(&[]);
+        assert!(breakdown.is_empty());
+    }
+}

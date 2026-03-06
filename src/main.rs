@@ -2,11 +2,7 @@ use clap::Parser;
 use std::path::PathBuf;
 use std::process;
 
-mod analysis;
-mod output;
-mod recommendations;
-mod scanner;
-mod scoring;
+use deslopify::{analysis, output, recommendations, scanner, scoring};
 
 #[derive(Parser)]
 #[command(
