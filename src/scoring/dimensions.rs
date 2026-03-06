@@ -25,6 +25,7 @@ fn has_config(scan: &ScanResult, kind: &ConfigKind) -> bool {
 
 fn setup_reliability(scan: &ScanResult) -> DimensionScore {
     let mut rating = 5u32;
+    let q = &scan.quality;
 
     if has_config(scan, &ConfigKind::DependencyManager) {
         rating = rating.saturating_sub(1);
@@ -32,29 +33,38 @@ fn setup_reliability(scan: &ScanResult) -> DimensionScore {
     if has_config(scan, &ConfigKind::Lockfile) {
         rating = rating.saturating_sub(1);
     }
-    if has_config(scan, &ConfigKind::Docker) {
+    if has_config(scan, &ConfigKind::Docker) && q.dockerfile_has_useful_commands {
         rating = rating.saturating_sub(1);
     }
-    if has_config(scan, &ConfigKind::BuildScript) {
+    if has_config(scan, &ConfigKind::BuildScript) && q.build_script_has_standard_targets {
         rating = rating.saturating_sub(1);
     }
     if has_config(scan, &ConfigKind::GitIgnore) {
         rating = rating.saturating_sub(1);
     }
 
-    let mut evidence_parts = Vec::new();
+    let mut evidence_parts: Vec<String> = Vec::new();
     if !has_config(scan, &ConfigKind::DependencyManager) {
-        evidence_parts.push("no dependency manager");
+        evidence_parts.push("no dependency manager".into());
     }
     if !has_config(scan, &ConfigKind::Lockfile) {
-        evidence_parts.push("no lockfile");
+        evidence_parts.push("no lockfile".into());
     }
-    if !has_config(scan, &ConfigKind::Docker) {
-        evidence_parts.push("no Docker config");
+    if has_config(scan, &ConfigKind::Docker) {
+        if q.dockerfile_has_useful_commands {
+            evidence_parts.push("Docker with build/run commands".into());
+        } else {
+            evidence_parts.push("Docker present but incomplete".into());
+        }
+    } else {
+        evidence_parts.push("no Docker config".into());
+    }
+    if has_config(scan, &ConfigKind::BuildScript) && !q.build_script_has_standard_targets {
+        evidence_parts.push("build script missing standard targets".into());
     }
 
     let evidence = if evidence_parts.is_empty() {
-        "All setup signals present".to_string()
+        "All setup signals present and valid".to_string()
     } else {
         evidence_parts.join(", ")
     };
@@ -298,32 +308,43 @@ fn runtime_predictability(analysis: &AnalysisResult) -> DimensionScore {
 }
 
 fn feedback_loop_speed(scan: &ScanResult) -> DimensionScore {
-    let mut rating = 5u32;
+    let mut rating = 0u32;
+    let est = scan.quality.estimated_build_seconds;
 
-    if has_config(scan, &ConfigKind::CI) {
-        rating = rating.saturating_sub(2);
+    if est > 120.0 {
+        rating += 3;
+    } else if est > 30.0 {
+        rating += 2;
+    } else if est > 5.0 {
+        rating += 1;
     }
-    if has_config(scan, &ConfigKind::TestFramework) {
-        rating = rating.saturating_sub(2);
+
+    if !has_config(scan, &ConfigKind::TestFramework) {
+        rating += 1;
     }
-    if has_config(scan, &ConfigKind::BuildScript) {
-        rating = rating.saturating_sub(1);
+
+    if !has_config(scan, &ConfigKind::CI) && !has_config(scan, &ConfigKind::BuildScript) {
+        rating += 1;
     }
+
+    rating = rating.min(5);
+
+    let build_est_label = if est > 60.0 {
+        format!("~{:.0}min", est / 60.0)
+    } else {
+        format!("~{:.0}s", est)
+    };
 
     let evidence = format!(
-        "{}{}{}",
-        if has_config(scan, &ConfigKind::CI) {
-            "CI configured"
-        } else {
-            "no CI"
-        },
+        "estimated build: {}, {}{}",
+        build_est_label,
         if has_config(scan, &ConfigKind::TestFramework) {
-            ", test runner configured"
+            "test runner configured"
         } else {
-            ", no test runner"
+            "no test runner"
         },
-        if has_config(scan, &ConfigKind::BuildScript) {
-            ", build scripts present"
+        if has_config(scan, &ConfigKind::CI) {
+            ", CI configured"
         } else {
             ""
         }
@@ -339,9 +360,20 @@ fn feedback_loop_speed(scan: &ScanResult) -> DimensionScore {
 
 fn documentation(scan: &ScanResult) -> DimensionScore {
     let mut rating = 5u32;
+    let q = &scan.quality;
 
     if has_config(scan, &ConfigKind::Readme) {
-        rating = rating.saturating_sub(2);
+        let readme_ratio = if scan.total_bytes > 0 {
+            q.readme_bytes as f64 / scan.total_bytes as f64
+        } else {
+            0.0
+        };
+
+        if q.readme_has_setup_instructions && readme_ratio > 0.005 {
+            rating = rating.saturating_sub(2);
+        } else if q.readme_bytes > 200 {
+            rating = rating.saturating_sub(1);
+        }
     }
     if has_config(scan, &ConfigKind::ArchitectureDocs) {
         rating = rating.saturating_sub(2);
@@ -352,14 +384,20 @@ fn documentation(scan: &ScanResult) -> DimensionScore {
 
     let mut evidence_parts = Vec::new();
     if has_config(scan, &ConfigKind::Readme) {
-        evidence_parts.push("README present");
+        if q.readme_has_setup_instructions {
+            evidence_parts.push(format!("README with setup instructions ({} bytes)", q.readme_bytes));
+        } else if q.readme_bytes > 200 {
+            evidence_parts.push(format!("README present but no setup instructions ({} bytes)", q.readme_bytes));
+        } else {
+            evidence_parts.push(format!("README too sparse ({} bytes)", q.readme_bytes));
+        }
     } else {
-        evidence_parts.push("no README");
+        evidence_parts.push("no README".to_string());
     }
     if has_config(scan, &ConfigKind::ArchitectureDocs) {
-        evidence_parts.push("architecture docs present");
+        evidence_parts.push("architecture docs present".to_string());
     } else {
-        evidence_parts.push("no architecture docs");
+        evidence_parts.push("no architecture docs".to_string());
     }
 
     DimensionScore {
@@ -372,6 +410,7 @@ fn documentation(scan: &ScanResult) -> DimensionScore {
 
 fn dependency_boundaries(scan: &ScanResult) -> DimensionScore {
     let mut rating = 3u32;
+    let q = &scan.quality;
 
     if has_config(scan, &ConfigKind::GitIgnore) {
         rating = rating.saturating_sub(1);
@@ -389,9 +428,19 @@ fn dependency_boundaries(scan: &ScanResult) -> DimensionScore {
         rating = rating.saturating_sub(1);
     }
 
-    if has_config(scan, &ConfigKind::Lockfile) {
+    if has_config(scan, &ConfigKind::Lockfile) && q.lockfile_appears_fresh {
         rating = rating.saturating_sub(1);
     }
+
+    let lockfile_status = if has_config(scan, &ConfigKind::Lockfile) {
+        if q.lockfile_appears_fresh {
+            ", lockfile present and fresh"
+        } else {
+            ", lockfile present but may be stale"
+        }
+    } else {
+        ", no lockfile"
+    };
 
     let evidence = format!(
         "{}{}{}",
@@ -405,11 +454,7 @@ fn dependency_boundaries(scan: &ScanResult) -> DimensionScore {
         } else {
             ""
         },
-        if has_config(scan, &ConfigKind::Lockfile) {
-            ", lockfile present"
-        } else {
-            ", no lockfile"
-        }
+        lockfile_status
     );
 
     DimensionScore {

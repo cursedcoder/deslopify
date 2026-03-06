@@ -1,5 +1,6 @@
 pub mod config;
 pub mod language;
+pub mod quality;
 pub mod stats;
 pub mod walker;
 
@@ -74,6 +75,7 @@ pub struct ScanResult {
     pub files: Vec<FileEntry>,
     pub language_breakdown: Vec<LanguageBreakdown>,
     pub configs: Vec<DetectedConfig>,
+    pub quality: quality::QualitySignals,
     pub total_files: usize,
     pub total_lines: usize,
     pub total_bytes: u64,
@@ -127,10 +129,13 @@ pub fn scan(paths: &[PathBuf], ignore_patterns: &[String]) -> ScanResult {
 
     let (max_dir_depth, top_level_dirs) = stats::compute_dir_stats(paths);
 
+    let quality_signals = quality::compute(&configs, &language_breakdown, total_lines);
+
     ScanResult {
         files,
         language_breakdown,
         configs,
+        quality: quality_signals,
         total_files,
         total_lines,
         total_bytes,
