@@ -161,8 +161,7 @@ fn estimate_comprehension_tokens(analysis: &AnalysisResult) -> usize {
     let duplication_overhead = if dup_count == 0 {
         0
     } else {
-        (50.0_f64.min(dup_count as f64) * 100.0
-            + (dup_count as f64).ln() * 500.0) as usize
+        (50.0_f64.min(dup_count as f64) * 100.0 + (dup_count as f64).ln() * 500.0) as usize
     };
 
     complexity_overhead + nesting_overhead + duplication_overhead

@@ -294,7 +294,8 @@ class UserService {
             language: Language::Php,
         };
 
-        let tree = super::super::tree_sitter_util::parse_file(&file).expect("parse_file returned None");
+        let tree =
+            super::super::tree_sitter_util::parse_file(&file).expect("parse_file returned None");
         let funcs = extract_functions(&tree, &file);
         let names: Vec<&str> = funcs.iter().map(|f| f.name.as_str()).collect();
         assert!(
@@ -302,11 +303,7 @@ class UserService {
             "Expected findById in {:?}",
             names
         );
-        assert!(
-            names.contains(&"save"),
-            "Expected save in {:?}",
-            names
-        );
+        assert!(names.contains(&"save"), "Expected save in {:?}", names);
         assert_eq!(funcs.len(), 2);
     }
 

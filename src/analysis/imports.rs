@@ -118,8 +118,7 @@ fn extract_module_path(node: &tree_sitter::Node, source: &str, lang: Language) -
             if cursor.goto_first_child() {
                 loop {
                     let child = cursor.node();
-                    if child.kind() == "namespace_use_clause" || child.kind() == "qualified_name"
-                    {
+                    if child.kind() == "namespace_use_clause" || child.kind() == "qualified_name" {
                         return tree_sitter_util::node_text(&child, source).to_string();
                     }
                     if !cursor.goto_next_sibling() {

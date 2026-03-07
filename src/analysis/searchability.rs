@@ -300,10 +300,7 @@ mod tests {
 
     #[test]
     fn two_files_is_not_collision() {
-        let funcs = vec![
-            make_func("process", "a.py"),
-            make_func("process", "b.py"),
-        ];
+        let funcs = vec![make_func("process", "a.py"), make_func("process", "b.py")];
         let (count, _) = count_function_collisions(&funcs);
         assert_eq!(count, 0);
     }

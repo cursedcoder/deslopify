@@ -12,12 +12,60 @@ pub struct DeadCodeStats {
 /// interface implementations, or lifecycle methods. These are called by
 /// frameworks via IoC, not by user code.
 const FRAMEWORK_PREFIXES: &[&str] = &[
-    "get", "set", "is", "has", "on", "handle", "configure", "build", "create", "update",
-    "delete", "remove", "find", "to", "from", "supports", "execute", "invoke", "process",
-    "render", "validate", "resolve", "load", "register", "subscribe", "provide", "apply",
-    "normalize", "denormalize", "transform", "reverse", "before", "after", "pre", "post",
-    "can", "should", "will", "do", "make", "parse", "format", "serialize", "deserialize",
-    "map", "reduce", "filter", "convert", "run", "start", "stop", "up", "down", "boot",
+    "get",
+    "set",
+    "is",
+    "has",
+    "on",
+    "handle",
+    "configure",
+    "build",
+    "create",
+    "update",
+    "delete",
+    "remove",
+    "find",
+    "to",
+    "from",
+    "supports",
+    "execute",
+    "invoke",
+    "process",
+    "render",
+    "validate",
+    "resolve",
+    "load",
+    "register",
+    "subscribe",
+    "provide",
+    "apply",
+    "normalize",
+    "denormalize",
+    "transform",
+    "reverse",
+    "before",
+    "after",
+    "pre",
+    "post",
+    "can",
+    "should",
+    "will",
+    "do",
+    "make",
+    "parse",
+    "format",
+    "serialize",
+    "deserialize",
+    "map",
+    "reduce",
+    "filter",
+    "convert",
+    "run",
+    "start",
+    "stop",
+    "up",
+    "down",
+    "boot",
 ];
 
 /// Detect functions that are likely truly dead — defined but never referenced anywhere.
@@ -76,9 +124,10 @@ pub fn detect_dead_code(
             continue;
         }
 
-        let referenced_elsewhere = scan.files.iter().any(|f| {
-            f.path != func.file && f.content.contains(&func.name)
-        });
+        let referenced_elsewhere = scan
+            .files
+            .iter()
+            .any(|f| f.path != func.file && f.content.contains(&func.name));
 
         if !referenced_elsewhere {
             unreferenced_count += 1;
@@ -94,10 +143,7 @@ pub fn detect_dead_code(
 
 /// A file is "connected" if its filename (stem) appears in any import path from
 /// another file, OR if any other file's content contains the filename stem.
-fn find_connected_files(
-    imports: &[ImportInfo],
-    scan: &ScanResult,
-) -> HashSet<std::path::PathBuf> {
+fn find_connected_files(imports: &[ImportInfo], scan: &ScanResult) -> HashSet<std::path::PathBuf> {
     let mut connected = HashSet::new();
 
     // Map each file to its stem for matching
@@ -262,7 +308,10 @@ mod tests {
         let scan = make_scan(vec![
             make_file("src/data.py", "def calculate_legacy_discount(): pass"),
             make_file("src/validator.py", "def normalize_address_format(): pass"),
-            make_file("src/main.py", "from data import calculate_legacy_discount\nnormalize_address_format()"),
+            make_file(
+                "src/main.py",
+                "from data import calculate_legacy_discount\nnormalize_address_format()",
+            ),
         ]);
         let stats = detect_dead_code(&funcs, &[], &scan);
         assert_eq!(stats.unreferenced_function_count, 0);
@@ -288,16 +337,21 @@ mod tests {
     fn connected_file_functions_not_flagged() {
         // Even if a specific method isn't referenced, if the FILE is imported,
         // its methods are considered alive (framework IoC pattern)
-        let funcs = vec![
-            make_func("specific_internal_method", "src/UserService.py", 20),
-        ];
+        let funcs = vec![make_func(
+            "specific_internal_method",
+            "src/UserService.py",
+            20,
+        )];
         let imports = vec![super::super::ImportInfo {
             file: PathBuf::from("src/main.py"),
             module_path: "src.UserService".to_string(),
             line: 1,
         }];
         let scan = make_scan(vec![
-            make_file("src/UserService.py", "class UserService:\n    def specific_internal_method(): pass"),
+            make_file(
+                "src/UserService.py",
+                "class UserService:\n    def specific_internal_method(): pass",
+            ),
             make_file("src/main.py", "from src.UserService import UserService"),
         ]);
         let stats = detect_dead_code(&funcs, &imports, &scan);

@@ -152,7 +152,10 @@ fn architecture_clarity(scan: &ScanResult, analysis: &AnalysisResult) -> Dimensi
                 ", {} duplicate filenames (worst: {} x{})",
                 analysis.duplicate_filename_count, name, count
             ),
-            None => format!(", {} duplicate filenames", analysis.duplicate_filename_count),
+            None => format!(
+                ", {} duplicate filenames",
+                analysis.duplicate_filename_count
+            ),
         };
         evidence.push_str(&dup_detail);
     }
