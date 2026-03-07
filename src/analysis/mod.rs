@@ -1,8 +1,10 @@
 pub mod complexity;
 pub mod duplication;
 pub mod imports;
+pub mod layers;
 pub mod naming;
 pub mod patterns;
+pub mod runtime;
 pub mod tree_sitter_util;
 
 use crate::scanner::{FileEntry, ScanResult};
@@ -31,6 +33,7 @@ pub struct DuplicateCluster {
     pub hash: u64,
     pub locations: Vec<(std::path::PathBuf, usize)>,
     pub line_count: usize,
+    pub similarity: f64,
 }
 
 #[derive(Debug)]
@@ -84,6 +87,9 @@ pub struct AnalysisResult {
     pub naming: NamingStats,
     pub anti_patterns: Vec<PatternMatch>,
     pub global_mutable_count: usize,
+    pub runtime_hazard_count: usize,
+    pub layer_violations: usize,
+    pub god_module_count: usize,
     pub avg_function_lines: usize,
     pub max_function_lines: usize,
     pub max_nesting_depth: usize,
@@ -99,6 +105,7 @@ pub fn analyze(scan: &ScanResult) -> AnalysisResult {
 
     let mut all_functions = Vec::new();
     let mut all_imports = Vec::new();
+    let mut all_runtime_hazards = Vec::new();
 
     for file in &source_files {
         if file.language.has_tree_sitter_support() {
@@ -108,6 +115,9 @@ pub fn analyze(scan: &ScanResult) -> AnalysisResult {
 
                 let mut imps = imports::extract_imports(&tree, file);
                 all_imports.append(&mut imps);
+
+                let mut hazards = runtime::detect_runtime_hazards(&tree, file);
+                all_runtime_hazards.append(&mut hazards);
             }
         }
     }
@@ -116,6 +126,11 @@ pub fn analyze(scan: &ScanResult) -> AnalysisResult {
     let naming = naming::analyze_naming(&all_functions);
     let anti_patterns = patterns::detect_patterns(&source_files);
     let global_mutable_count = patterns::count_global_mutables(&source_files);
+    let runtime_hazard_count = all_runtime_hazards.len();
+
+    let layer_analysis = layers::analyze_layers(&all_imports, scan);
+    let layer_violations = layer_analysis.bidirectional_pairs.len();
+    let god_module_count = layer_analysis.god_modules.len();
 
     let avg_function_lines = if all_functions.is_empty() {
         0
@@ -149,6 +164,9 @@ pub fn analyze(scan: &ScanResult) -> AnalysisResult {
         naming,
         anti_patterns,
         global_mutable_count,
+        runtime_hazard_count,
+        layer_violations,
+        god_module_count,
         avg_function_lines,
         max_function_lines,
         max_nesting_depth,

@@ -45,7 +45,7 @@ pub fn size_multiplier(total_bytes: u64, git: Option<&crate::scanner::git::GitAc
         Some(g) if g.is_git_repo && g.active_files > 0 => g.active_bytes,
         _ => total_bytes,
     };
-    let estimated_tokens = effective_bytes as f64 / context_budget::CHARS_PER_TOKEN as f64;
+    let estimated_tokens = effective_bytes as f64 / 3.5; // avg chars-per-token across languages
     let context_ratio = estimated_tokens / context_budget::USABLE_CONTEXT as f64;
     context_ratio.powf(1.5).min(1.0)
 }
@@ -80,6 +80,27 @@ pub fn score(scan: &ScanResult, analysis: &AnalysisResult) -> ScoreResult {
         dimensions,
         context_budget,
     }
+}
+
+/// Compute the slop index delta if a dimension's rating changed.
+/// Returns the number of index points that would be removed.
+pub fn simulate_reduction(
+    dimensions: &[DimensionScore],
+    dimension_name: &str,
+    proposed_rating: u32,
+    multiplier: f64,
+) -> u32 {
+    let dim = match dimensions.iter().find(|d| d.name == dimension_name) {
+        Some(d) => d,
+        None => return 0,
+    };
+    if proposed_rating >= dim.rating {
+        return 0;
+    }
+    let old_contrib = dim.weight as f64 * dim.rating as f64 / 5.0;
+    let new_contrib = dim.weight as f64 * proposed_rating as f64 / 5.0;
+    let delta = (old_contrib - new_contrib) * multiplier;
+    delta.round().max(1.0) as u32
 }
 
 #[cfg(test)]
@@ -243,8 +264,8 @@ mod tests {
     fn size_multiplier_quarter_context() {
         let mult = size_multiplier(176_000, None);
         assert!(
-            mult < 0.15,
-            "Quarter-context project should have multiplier < 0.15, got {:.3}",
+            mult < 0.20,
+            "Quarter-context project should have multiplier < 0.20, got {:.3}",
             mult
         );
     }
@@ -253,8 +274,8 @@ mod tests {
     fn size_multiplier_half_context() {
         let mult = size_multiplier(352_000, None);
         assert!(
-            mult > 0.3 && mult < 0.4,
-            "Half-context project should have multiplier ~0.35, got {:.3}",
+            mult > 0.3 && mult < 0.5,
+            "Half-context project should have multiplier ~0.35-0.45, got {:.3}",
             mult
         );
     }

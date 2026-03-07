@@ -87,9 +87,7 @@ fn architecture_clarity(scan: &ScanResult, analysis: &AnalysisResult) -> Dimensi
     }
 
     let large_files = scan.files.iter().filter(|f| f.line_count > 500).count();
-    if large_files > 10 {
-        rating += 2;
-    } else if large_files > 3 {
+    if large_files > 3 {
         rating += 1;
     }
 
@@ -97,21 +95,33 @@ fn architecture_clarity(scan: &ScanResult, analysis: &AnalysisResult) -> Dimensi
         rating += 1;
     }
 
-    let big_fns = analysis
-        .functions
-        .iter()
-        .filter(|f| f.line_count > 100)
-        .count();
-    if big_fns > 5 {
+    if analysis.layer_violations > 0 {
+        rating += 1;
+    }
+
+    if analysis.god_module_count > 0 {
         rating += 1;
     }
 
     rating = rating.min(5);
 
-    let evidence = format!(
-        "{} files, max depth {}, {} files >500 lines (largest: {} lines), {} functions >100 lines",
-        scan.total_files, scan.max_dir_depth, large_files, scan.max_file_lines, big_fns
+    let mut evidence = format!(
+        "{} files, max depth {}, {} files >500 lines (largest: {} lines)",
+        scan.total_files, scan.max_dir_depth, large_files, scan.max_file_lines
     );
+
+    if analysis.layer_violations > 0 {
+        evidence.push_str(&format!(
+            ", {} bidirectional layer deps",
+            analysis.layer_violations
+        ));
+    }
+    if analysis.god_module_count > 0 {
+        evidence.push_str(&format!(
+            ", {} god modules (imported by >60% of groups)",
+            analysis.god_module_count
+        ));
+    }
 
     DimensionScore {
         name: "Architecture clarity".to_string(),
@@ -156,15 +166,32 @@ fn coupling_blast_radius(analysis: &AnalysisResult) -> DimensionScore {
 
     let max_fan_in_label = graph.max_fan_in_module.as_deref().unwrap_or("");
 
+    let cycle_detail = if graph.largest_cycle_size > 0 {
+        format!(
+            ", {} circular deps (largest: {} modules)",
+            graph.circular_dep_count, graph.largest_cycle_size
+        )
+    } else {
+        ", 0 circular deps".to_string()
+    };
+
     let evidence = format!(
-        "avg fan-out: {:.1}, max fan-out: {}{}, avg fan-in: {:.1}, max fan-in: {}{}, {} circular deps",
+        "avg fan-out: {:.1}, max fan-out: {}{}, avg fan-in: {:.1}, max fan-in: {}{}{}",
         graph.avg_fan_out,
         graph.max_fan_out,
-        if max_fan_out_label.is_empty() { String::new() } else { format!(" ({})", max_fan_out_label) },
+        if max_fan_out_label.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", max_fan_out_label)
+        },
         graph.avg_fan_in,
         graph.max_fan_in,
-        if max_fan_in_label.is_empty() { String::new() } else { format!(" ({})", max_fan_in_label) },
-        graph.circular_dep_count
+        if max_fan_in_label.is_empty() {
+            String::new()
+        } else {
+            format!(" ({})", max_fan_in_label)
+        },
+        cycle_detail
     );
 
     DimensionScore {
@@ -273,8 +300,6 @@ fn runtime_predictability(analysis: &AnalysisResult) -> DimensionScore {
     let mut rating = 0u32;
 
     if analysis.global_mutable_count > 20 {
-        rating += 3;
-    } else if analysis.global_mutable_count > 5 {
         rating += 2;
     } else if analysis.global_mutable_count > 0 {
         rating += 1;
@@ -286,17 +311,30 @@ fn runtime_predictability(analysis: &AnalysisResult) -> DimensionScore {
         .filter(|p| p.pattern_name == "debug_print" || p.pattern_name == "bare_except")
         .count();
 
-    if side_effect_patterns > 20 {
+    if side_effect_patterns > 5 {
+        rating += 1;
+    }
+
+    if analysis.runtime_hazard_count > 10 {
         rating += 2;
-    } else if side_effect_patterns > 5 {
+    } else if analysis.runtime_hazard_count > 3 {
         rating += 1;
     }
 
     rating = rating.min(5);
 
+    let hazard_detail = if analysis.runtime_hazard_count > 0 {
+        format!(
+            ", {} runtime hazards (singletons, module-level calls, event listeners)",
+            analysis.runtime_hazard_count
+        )
+    } else {
+        String::new()
+    };
+
     let evidence = format!(
-        "{} global mutable patterns, {} side-effect anti-patterns",
-        analysis.global_mutable_count, side_effect_patterns
+        "{} global mutable patterns, {} side-effect anti-patterns{}",
+        analysis.global_mutable_count, side_effect_patterns, hazard_detail
     );
 
     DimensionScore {
@@ -472,17 +510,21 @@ fn dependency_boundaries(scan: &ScanResult) -> DimensionScore {
 }
 
 fn context_pressure(scan: &ScanResult, analysis: &AnalysisResult) -> DimensionScore {
+    use super::context_budget;
+
     let mut rating = 0u32;
 
     let effective_bytes = match &scan.git_activity {
         Some(g) if g.is_git_repo && g.active_files > 0 => g.active_bytes,
         _ => scan.total_bytes,
     };
-    let estimated_tokens = effective_bytes / 4;
+    let estimated_tokens = context_budget::estimate_total_tokens(scan);
+    let active_token_ratio = effective_bytes as f64 / scan.total_bytes.max(1) as f64;
+    let active_tokens = (estimated_tokens as f64 * active_token_ratio) as u64;
 
-    if estimated_tokens > 500_000 {
+    if active_tokens > 500_000 {
         rating += 2;
-    } else if estimated_tokens > 100_000 {
+    } else if active_tokens > 100_000 {
         rating += 1;
     }
 
@@ -498,12 +540,11 @@ fn context_pressure(scan: &ScanResult, analysis: &AnalysisResult) -> DimensionSc
 
     rating = rating.min(5);
 
-    let total_tokens = scan.total_bytes / 4;
     let evidence = if effective_bytes < scan.total_bytes {
         format!(
             "~{} active tokens (~{} total), avg function {} lines, max function {} lines, max nesting depth {}",
-            format_tokens(estimated_tokens as usize),
-            format_tokens(total_tokens as usize),
+            format_tokens(active_tokens as usize),
+            format_tokens(estimated_tokens),
             analysis.avg_function_lines,
             analysis.max_function_lines,
             analysis.max_nesting_depth
@@ -511,7 +552,7 @@ fn context_pressure(scan: &ScanResult, analysis: &AnalysisResult) -> DimensionSc
     } else {
         format!(
             "~{} estimated tokens, avg function {} lines, max function {} lines, max nesting depth {}",
-            format_tokens(estimated_tokens as usize),
+            format_tokens(estimated_tokens),
             analysis.avg_function_lines,
             analysis.max_function_lines,
             analysis.max_nesting_depth

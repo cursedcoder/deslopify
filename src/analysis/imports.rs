@@ -140,6 +140,8 @@ pub struct ImportGraphStats {
     pub max_fan_in: usize,
     pub max_fan_in_module: Option<String>,
     pub circular_dep_count: usize,
+    pub largest_cycle_size: usize,
+    pub cycle_modules: Vec<Vec<String>>,
 }
 
 pub fn compute_import_graph(imports: &[ImportInfo]) -> ImportGraphStats {
@@ -180,7 +182,10 @@ pub fn compute_import_graph(imports: &[ImportInfo]) -> ImportGraphStats {
         .map(|(k, &v)| (v, Some(k.clone())))
         .unwrap_or((0, None));
 
-    let circular_dep_count = count_circular_deps(&edges);
+    let sccs = find_sccs(&edges);
+    let cycle_modules: Vec<Vec<String>> = sccs.into_iter().filter(|scc| scc.len() > 1).collect();
+    let circular_dep_count = cycle_modules.len();
+    let largest_cycle_size = cycle_modules.iter().map(|c| c.len()).max().unwrap_or(0);
 
     ImportGraphStats {
         avg_fan_out,
@@ -190,19 +195,158 @@ pub fn compute_import_graph(imports: &[ImportInfo]) -> ImportGraphStats {
         max_fan_in,
         max_fan_in_module,
         circular_dep_count,
+        largest_cycle_size,
+        cycle_modules,
     }
 }
 
-fn count_circular_deps(edges: &HashMap<String, HashSet<String>>) -> usize {
-    let mut count = 0;
+struct TarjanState {
+    index_counter: usize,
+    stack: Vec<String>,
+    on_stack: HashSet<String>,
+    index: HashMap<String, usize>,
+    lowlink: HashMap<String, usize>,
+    sccs: Vec<Vec<String>>,
+}
+
+fn find_sccs(edges: &HashMap<String, HashSet<String>>) -> Vec<Vec<String>> {
+    let mut all_nodes: HashSet<&String> = HashSet::new();
     for (from, targets) in edges {
-        for target in targets {
-            if let Some(back_targets) = edges.get(target) {
-                if back_targets.contains(from) {
-                    count += 1;
-                }
+        all_nodes.insert(from);
+        for t in targets {
+            all_nodes.insert(t);
+        }
+    }
+
+    let mut state = TarjanState {
+        index_counter: 0,
+        stack: Vec::new(),
+        on_stack: HashSet::new(),
+        index: HashMap::new(),
+        lowlink: HashMap::new(),
+        sccs: Vec::new(),
+    };
+
+    for node in all_nodes {
+        if !state.index.contains_key(node) {
+            tarjan_strongconnect(node.clone(), edges, &mut state);
+        }
+    }
+
+    state.sccs
+}
+
+fn tarjan_strongconnect(
+    v: String,
+    edges: &HashMap<String, HashSet<String>>,
+    state: &mut TarjanState,
+) {
+    state.index.insert(v.clone(), state.index_counter);
+    state.lowlink.insert(v.clone(), state.index_counter);
+    state.index_counter += 1;
+    state.stack.push(v.clone());
+    state.on_stack.insert(v.clone());
+
+    if let Some(neighbors) = edges.get(&v) {
+        for w in neighbors {
+            if !state.index.contains_key(w) {
+                tarjan_strongconnect(w.clone(), edges, state);
+                let w_low = state.lowlink[w];
+                let v_low = state.lowlink[&v];
+                state.lowlink.insert(v.clone(), v_low.min(w_low));
+            } else if state.on_stack.contains(w) {
+                let w_idx = state.index[w];
+                let v_low = state.lowlink[&v];
+                state.lowlink.insert(v.clone(), v_low.min(w_idx));
             }
         }
     }
-    count / 2 // each cycle counted twice
+
+    if state.lowlink[&v] == state.index[&v] {
+        let mut scc = Vec::new();
+        loop {
+            let w = state.stack.pop().unwrap();
+            state.on_stack.remove(&w);
+            scc.push(w.clone());
+            if w == v {
+                break;
+            }
+        }
+        state.sccs.push(scc);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn edges_from(pairs: &[(&str, &str)]) -> HashMap<String, HashSet<String>> {
+        let mut edges: HashMap<String, HashSet<String>> = HashMap::new();
+        for (from, to) in pairs {
+            edges
+                .entry(from.to_string())
+                .or_default()
+                .insert(to.to_string());
+        }
+        edges
+    }
+
+    #[test]
+    fn no_cycles() {
+        let edges = edges_from(&[("a", "b"), ("b", "c")]);
+        let sccs = find_sccs(&edges);
+        let cycles: Vec<_> = sccs.into_iter().filter(|s| s.len() > 1).collect();
+        assert!(cycles.is_empty());
+    }
+
+    #[test]
+    fn direct_pair_cycle() {
+        let edges = edges_from(&[("a", "b"), ("b", "a")]);
+        let sccs = find_sccs(&edges);
+        let cycles: Vec<_> = sccs.into_iter().filter(|s| s.len() > 1).collect();
+        assert_eq!(cycles.len(), 1);
+        assert_eq!(cycles[0].len(), 2);
+    }
+
+    #[test]
+    fn triangle_cycle() {
+        let edges = edges_from(&[("a", "b"), ("b", "c"), ("c", "a")]);
+        let sccs = find_sccs(&edges);
+        let cycles: Vec<_> = sccs.into_iter().filter(|s| s.len() > 1).collect();
+        assert_eq!(cycles.len(), 1);
+        assert_eq!(cycles[0].len(), 3);
+    }
+
+    #[test]
+    fn diamond_no_cycle() {
+        let edges = edges_from(&[("a", "b"), ("a", "c"), ("b", "d"), ("c", "d")]);
+        let sccs = find_sccs(&edges);
+        let cycles: Vec<_> = sccs.into_iter().filter(|s| s.len() > 1).collect();
+        assert!(cycles.is_empty());
+    }
+
+    #[test]
+    fn two_separate_cycles() {
+        let edges = edges_from(&[("a", "b"), ("b", "a"), ("c", "d"), ("d", "c")]);
+        let sccs = find_sccs(&edges);
+        let cycles: Vec<_> = sccs.into_iter().filter(|s| s.len() > 1).collect();
+        assert_eq!(cycles.len(), 2);
+    }
+
+    #[test]
+    fn disconnected_components() {
+        let edges = edges_from(&[("a", "b"), ("c", "d"), ("d", "e")]);
+        let sccs = find_sccs(&edges);
+        let cycles: Vec<_> = sccs.into_iter().filter(|s| s.len() > 1).collect();
+        assert!(cycles.is_empty());
+    }
+
+    #[test]
+    fn large_cycle_detected() {
+        let edges = edges_from(&[("a", "b"), ("b", "c"), ("c", "d"), ("d", "a"), ("e", "a")]);
+        let sccs = find_sccs(&edges);
+        let cycles: Vec<_> = sccs.into_iter().filter(|s| s.len() > 1).collect();
+        assert_eq!(cycles.len(), 1);
+        assert_eq!(cycles[0].len(), 4);
+    }
 }
