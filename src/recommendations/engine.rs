@@ -46,6 +46,17 @@ fn split_large_files(
         .files
         .iter()
         .filter(|f| f.line_count > 500 && f.language.is_source_code())
+        .filter(|f| {
+            // Skip data-heavy files (enums, dictionaries, constants, config).
+            // A file with <1 function per 500 lines is almost certainly pure data
+            // and doesn't benefit from splitting.
+            let fn_count = analysis
+                .functions
+                .iter()
+                .filter(|func| func.file == f.path)
+                .count();
+            fn_count > 0 && (fn_count as f64 / f.line_count as f64) > 0.002
+        })
         .collect();
     large_files.sort_by(|a, b| b.line_count.cmp(&a.line_count));
 

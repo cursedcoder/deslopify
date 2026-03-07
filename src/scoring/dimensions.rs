@@ -86,8 +86,23 @@ fn architecture_clarity(scan: &ScanResult, analysis: &AnalysisResult) -> Dimensi
         rating += 1;
     }
 
-    let large_files = scan.files.iter().filter(|f| f.line_count > 500).count();
-    if large_files > 3 {
+    // Only count large files with meaningful logic, not data files (enums, dictionaries)
+    let complex_large_files = scan
+        .files
+        .iter()
+        .filter(|f| {
+            if f.line_count <= 500 {
+                return false;
+            }
+            let fn_count = analysis
+                .functions
+                .iter()
+                .filter(|func| func.file == f.path)
+                .count();
+            fn_count > 0 && (fn_count as f64 / f.line_count as f64) > 0.002
+        })
+        .count();
+    if complex_large_files > 3 {
         rating += 1;
     }
 
@@ -105,9 +120,10 @@ fn architecture_clarity(scan: &ScanResult, analysis: &AnalysisResult) -> Dimensi
 
     rating = rating.min(5);
 
+    let total_large = scan.files.iter().filter(|f| f.line_count > 500).count();
     let mut evidence = format!(
-        "{} files, max depth {}, {} files >500 lines (largest: {} lines)",
-        scan.total_files, scan.max_dir_depth, large_files, scan.max_file_lines
+        "{} files, max depth {}, {} complex files >500 lines ({} total >500 lines, largest: {} lines)",
+        scan.total_files, scan.max_dir_depth, complex_large_files, total_large, scan.max_file_lines
     );
 
     if analysis.layer_violations > 0 {
