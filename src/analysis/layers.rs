@@ -79,11 +79,58 @@ fn extract_group(path: &Path) -> Option<String> {
     }
 }
 
+/// Pre-built index for fast import-to-group resolution.
+struct GroupIndex {
+    component_to_groups: HashMap<String, HashSet<String>>,
+    all_groups: HashSet<String>,
+}
+
+impl GroupIndex {
+    fn build(groups: &HashMap<String, String>) -> Self {
+        let mut component_to_groups: HashMap<String, HashSet<String>> = HashMap::new();
+        let mut all_groups = HashSet::new();
+
+        for group in groups.values() {
+            all_groups.insert(group.clone());
+            for component in group.split('/') {
+                component_to_groups
+                    .entry(component.to_string())
+                    .or_default()
+                    .insert(group.clone());
+            }
+        }
+
+        Self {
+            component_to_groups,
+            all_groups,
+        }
+    }
+
+    fn resolve(&self, module_path: &str) -> Option<&String> {
+        // Try exact group match first
+        if self.all_groups.contains(module_path) {
+            return self.all_groups.get(module_path);
+        }
+
+        // Match by first meaningful path component of the import
+        for component in module_path.split(['/', '.', ':', '\\']) {
+            if component.is_empty() {
+                continue;
+            }
+            if let Some(matching_groups) = self.component_to_groups.get(component) {
+                return matching_groups.iter().next();
+            }
+        }
+        None
+    }
+}
+
 /// Build directed edges between groups based on imports.
 fn build_group_edges(
     imports: &[ImportInfo],
     groups: &HashMap<String, String>,
 ) -> HashMap<String, HashSet<String>> {
+    let index = GroupIndex::build(groups);
     let mut edges: HashMap<String, HashSet<String>> = HashMap::new();
 
     for imp in imports {
@@ -93,37 +140,16 @@ fn build_group_edges(
             None => continue,
         };
 
-        // Try to resolve the import target to a known group.
-        // Import paths may be relative or use module names that don't directly
-        // map to file paths, so we do a best-effort match.
-        let target_group = resolve_import_group(&imp.module_path, groups);
-
-        if let Some(to_group) = target_group {
-            if from_group != to_group {
-                edges.entry(from_group).or_default().insert(to_group);
+        if let Some(to_group) = index.resolve(&imp.module_path) {
+            if from_group != *to_group {
+                edges
+                    .entry(from_group)
+                    .or_default()
+                    .insert(to_group.clone());
             }
         }
     }
     edges
-}
-
-fn resolve_import_group(module_path: &str, groups: &HashMap<String, String>) -> Option<String> {
-    // Direct lookup: find any file whose group matches the import path prefix
-    for (file_path, group) in groups {
-        if file_path.contains(module_path) || module_path.contains(group.as_str()) {
-            return Some(group.clone());
-        }
-    }
-    // Try matching by the first path component of the import
-    let first_component = module_path.split(['/', '.', ':']).next().unwrap_or("");
-    if !first_component.is_empty() {
-        for group in groups.values() {
-            if group.contains(first_component) {
-                return Some(group.clone());
-            }
-        }
-    }
-    None
 }
 
 fn find_bidirectional_deps(edges: &HashMap<String, HashSet<String>>) -> Vec<(String, String)> {

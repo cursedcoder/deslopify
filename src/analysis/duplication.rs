@@ -7,8 +7,26 @@ use crate::scanner::FileEntry;
 use super::DuplicateCluster;
 
 const MIN_CHUNK_LINES: usize = 8;
+const MIN_RAW_LEN: usize = 60;
+const MIN_NORMALIZED_LEN: usize = 30;
+const MIN_KEYWORD_COUNT: usize = 2;
+
+struct NormalizeContext {
+    re_string: Regex,
+    re_ident: Regex,
+}
+
+impl NormalizeContext {
+    fn new() -> Self {
+        Self {
+            re_string: Regex::new(r#"("[^"]*"|'[^']*')"#).unwrap(),
+            re_ident: Regex::new(r"[a-zA-Z_][a-zA-Z0-9_]*").unwrap(),
+        }
+    }
+}
 
 pub fn find_duplicates(files: &[&FileEntry]) -> Vec<DuplicateCluster> {
+    let ctx = NormalizeContext::new();
     let mut normalized_map: HashMap<u64, Vec<(std::path::PathBuf, usize, String)>> = HashMap::new();
 
     for file in files {
@@ -17,7 +35,17 @@ pub fn find_duplicates(files: &[&FileEntry]) -> Vec<DuplicateCluster> {
             continue;
         }
 
-        for start in 0..lines.len().saturating_sub(MIN_CHUNK_LINES) {
+        // Use stride to avoid O(n^2) blowup on large files
+        let stride = if lines.len() > 2000 {
+            4
+        } else if lines.len() > 500 {
+            2
+        } else {
+            1
+        };
+
+        let mut start = 0;
+        while start + MIN_CHUNK_LINES <= lines.len() {
             let raw_chunk: String = lines[start..start + MIN_CHUNK_LINES]
                 .iter()
                 .map(|l| l.trim())
@@ -25,12 +53,18 @@ pub fn find_duplicates(files: &[&FileEntry]) -> Vec<DuplicateCluster> {
                 .collect::<Vec<_>>()
                 .join("\n");
 
-            if raw_chunk.len() < 40 {
+            start += stride;
+
+            if raw_chunk.len() < MIN_RAW_LEN {
                 continue;
             }
 
-            let normalized = normalize_chunk(&raw_chunk);
-            if normalized.len() < 20 {
+            let normalized = normalize_chunk(&raw_chunk, &ctx);
+            if normalized.len() < MIN_NORMALIZED_LEN {
+                continue;
+            }
+
+            if count_keywords(&normalized) < MIN_KEYWORD_COUNT {
                 continue;
             }
 
@@ -38,7 +72,7 @@ pub fn find_duplicates(files: &[&FileEntry]) -> Vec<DuplicateCluster> {
             normalized_map
                 .entry(hash)
                 .or_default()
-                .push((file.path.clone(), start + 1, raw_chunk));
+                .push((file.path.clone(), start, raw_chunk));
         }
     }
 
@@ -67,25 +101,31 @@ pub fn find_duplicates(files: &[&FileEntry]) -> Vec<DuplicateCluster> {
         .collect()
 }
 
-fn normalize_chunk(chunk: &str) -> String {
-    let re_string = Regex::new(r#"("[^"]*"|'[^']*')"#).unwrap();
-    let re_ident = Regex::new(r"[a-zA-Z_][a-zA-Z0-9_]*").unwrap();
+fn normalize_chunk(chunk: &str, ctx: &NormalizeContext) -> String {
+    let without_strings = ctx.re_string.replace_all(chunk, "\"_\"");
 
-    let without_strings = re_string.replace_all(chunk, "\"_\"");
-
-    let without_idents = re_ident.replace_all(&without_strings, |caps: &regex::Captures| {
-        let word = caps.get(0).unwrap().as_str();
-        if is_keyword(word) {
-            word.to_string()
-        } else {
-            "_ID_".to_string()
-        }
-    });
+    let without_idents = ctx
+        .re_ident
+        .replace_all(&without_strings, |caps: &regex::Captures| {
+            let word = caps.get(0).unwrap().as_str();
+            if is_keyword(word) {
+                word.to_string()
+            } else {
+                "_ID_".to_string()
+            }
+        });
 
     without_idents
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn count_keywords(normalized: &str) -> usize {
+    normalized
+        .split_whitespace()
+        .filter(|w| is_keyword(w))
+        .count()
 }
 
 fn is_keyword(word: &str) -> bool {
@@ -191,23 +231,26 @@ mod tests {
 
     #[test]
     fn normalize_strips_identifiers() {
+        let ctx = NormalizeContext::new();
         let code = "let foo = bar + baz;";
-        let normalized = normalize_chunk(code);
+        let normalized = normalize_chunk(code, &ctx);
         assert_eq!(normalized, "let _ID_ = _ID_ + _ID_;");
     }
 
     #[test]
     fn normalize_strips_strings() {
+        let ctx = NormalizeContext::new();
         let code = r#"print("hello world")"#;
-        let normalized = normalize_chunk(code);
+        let normalized = normalize_chunk(code, &ctx);
         assert!(!normalized.contains("hello"));
         assert!(!normalized.contains("world"));
     }
 
     #[test]
     fn normalize_preserves_keywords() {
+        let ctx = NormalizeContext::new();
         let code = "if x > 0 { return true; }";
-        let normalized = normalize_chunk(code);
+        let normalized = normalize_chunk(code, &ctx);
         assert!(normalized.contains("if"));
         assert!(normalized.contains("return"));
         assert!(normalized.contains("true"));
@@ -216,7 +259,7 @@ mod tests {
     #[test]
     fn identical_code_detected() {
         use std::path::PathBuf;
-        let content = "line1\nline2\nline3\nline4\nlet x = foo(bar);\nlet y = baz(qux);\nresult = x + y;\nreturn result;\nline9\n";
+        let content = "line1\nline2\nline3\nline4\nlet x = foo(bar);\nlet y = baz(qux);\nif result { return x + y; }\nreturn result;\nline9\n";
         let files = vec![
             FileEntry {
                 path: PathBuf::from("a.rs"),
@@ -245,8 +288,8 @@ mod tests {
     #[test]
     fn renamed_variables_detected() {
         use std::path::PathBuf;
-        let content_a = "line1\nline2\nline3\nline4\nlet alpha = compute(beta);\nlet gamma = process(delta);\nresult = alpha + gamma;\nreturn result;\nline9\n";
-        let content_b = "line1\nline2\nline3\nline4\nlet foo = compute(bar);\nlet baz = process(qux);\nresult = foo + baz;\nreturn result;\nline9\n";
+        let content_a = "line1\nline2\nline3\nline4\nlet alpha = compute(beta);\nlet gamma = process(delta);\nif result { return alpha + gamma; }\nreturn result;\nline9\n";
+        let content_b = "line1\nline2\nline3\nline4\nlet foo = compute(bar);\nlet baz = process(qux);\nif result { return foo + baz; }\nreturn result;\nline9\n";
         let files = vec![
             FileEntry {
                 path: PathBuf::from("a.rs"),
