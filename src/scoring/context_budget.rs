@@ -65,7 +65,7 @@ pub fn estimate_total_tokens(scan: &ScanResult) -> usize {
 pub fn estimate(scan: &ScanResult, analysis: &AnalysisResult) -> ContextBudget {
     let graph = imports::compute_import_graph(&analysis.imports);
 
-    let file_discovery_tokens = estimate_discovery_tokens(scan);
+    let file_discovery_tokens = estimate_discovery_tokens(scan, analysis);
     let code_reading_tokens = estimate_reading_tokens(scan);
     let dependency_tracing_tokens = estimate_tracing_tokens(&graph);
     let comprehension_tokens = estimate_comprehension_tokens(analysis);
@@ -95,11 +95,27 @@ pub fn estimate(scan: &ScanResult, analysis: &AnalysisResult) -> ContextBudget {
     }
 }
 
-fn estimate_discovery_tokens(scan: &ScanResult) -> usize {
+fn estimate_discovery_tokens(scan: &ScanResult, analysis: &AnalysisResult) -> usize {
     let search_queries = 3;
-    let results_per_query = 20.min(scan.total_files);
+    let base_results = 20.min(scan.total_files);
+
+    // Duplicate filenames multiply find results — each duplicate name adds noise
+    let dup_multiplier = if analysis.duplicate_filename_count > 20 {
+        1.5
+    } else if analysis.duplicate_filename_count > 5 {
+        1.25
+    } else {
+        1.0
+    };
+    let results_per_query = (base_results as f64 * dup_multiplier).ceil() as usize;
     let tokens_per_result = 15;
-    search_queries * results_per_query * tokens_per_result
+
+    let base_tokens = search_queries * results_per_query * tokens_per_result;
+
+    // Function name collisions mean extra grep results the agent must sift through
+    let grep_noise_tokens = analysis.function_collision_count * 30;
+
+    base_tokens + grep_noise_tokens
 }
 
 fn estimate_reading_tokens(scan: &ScanResult) -> usize {
@@ -140,7 +156,14 @@ fn estimate_comprehension_tokens(analysis: &AnalysisResult) -> usize {
         300
     };
 
-    let duplication_overhead = analysis.duplicates.len() * 100;
+    // Logarithmic scale: first 50 clusters matter a lot, diminishing returns after
+    let dup_count = analysis.duplicates.len();
+    let duplication_overhead = if dup_count == 0 {
+        0
+    } else {
+        (50.0_f64.min(dup_count as f64) * 100.0
+            + (dup_count as f64).ln() * 500.0) as usize
+    };
 
     complexity_overhead + nesting_overhead + duplication_overhead
 }

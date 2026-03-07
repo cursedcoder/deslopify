@@ -93,6 +93,7 @@ impl Language {
                 | Self::C
                 | Self::Cpp
                 | Self::Ruby
+                | Self::Php
         )
     }
 }
@@ -241,7 +242,7 @@ mod tests {
         assert!(Language::JavaScript.has_tree_sitter_support());
         assert!(Language::Rust.has_tree_sitter_support());
         assert!(Language::Go.has_tree_sitter_support());
-        assert!(!Language::Php.has_tree_sitter_support());
+        assert!(Language::Php.has_tree_sitter_support());
         assert!(!Language::Shell.has_tree_sitter_support());
         assert!(!Language::Unknown.has_tree_sitter_support());
     }

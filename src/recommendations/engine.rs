@@ -23,6 +23,8 @@ pub fn generate_all(
     reduce_global_mutables(score, analysis, &mut recs);
     extract_libraries(score, scan, &mut recs);
     enforce_layering(score, analysis, &mut recs);
+    improve_searchability(score, analysis, &mut recs);
+    remove_dead_code(score, analysis, &mut recs);
 
     recs
 }
@@ -36,6 +38,19 @@ fn estimate(score: &ScoreResult, dimension: &str, proposed_rating: u32) -> u32 {
     )
 }
 
+fn is_vendor_path(path: &std::path::Path) -> bool {
+    let s = path.to_string_lossy();
+    let lower = s.to_lowercase();
+    lower.contains("/vendor/")
+        || lower.contains("/deps/")
+        || lower.contains("/third_party/")
+        || lower.contains("/third-party/")
+        || lower.contains("/node_modules/")
+        || lower.contains("/pods/")
+        || lower.contains("/.bundle/")
+        || lower.contains("/external/")
+}
+
 fn split_large_files(
     score: &ScoreResult,
     scan: &ScanResult,
@@ -46,10 +61,8 @@ fn split_large_files(
         .files
         .iter()
         .filter(|f| f.line_count > 500 && f.language.is_source_code())
+        .filter(|f| !is_vendor_path(&f.path))
         .filter(|f| {
-            // Skip data-heavy files (enums, dictionaries, constants, config).
-            // A file with <1 function per 500 lines is almost certainly pure data
-            // and doesn't benefit from splitting.
             let fn_count = analysis
                 .functions
                 .iter()
@@ -458,6 +471,118 @@ fn extract_libraries(score: &ScoreResult, scan: &ScanResult, recs: &mut Vec<Reco
             } else {
                 hot_names.join(", ")
             }
+        ),
+    });
+}
+
+fn improve_searchability(
+    score: &ScoreResult,
+    analysis: &AnalysisResult,
+    recs: &mut Vec<Recommendation>,
+) {
+    let dup = analysis.duplicate_filename_count;
+    let coll = analysis.function_collision_count;
+
+    if dup <= 5 && coll <= 10 {
+        return;
+    }
+
+    let current_rating = score
+        .dimensions
+        .iter()
+        .find(|d| d.name == "Architecture clarity")
+        .map(|d| d.rating)
+        .unwrap_or(0);
+
+    let dup_reduction = if dup > 10 { 1 } else { 0 };
+    let coll_reduction = if coll > 15 { 1 } else { 0 };
+    let proposed_rating = current_rating.saturating_sub(dup_reduction + coll_reduction);
+    let reduction = estimate(score, "Architecture clarity", proposed_rating);
+
+    let mut action_parts = Vec::new();
+    if dup > 5 {
+        let worst_detail = match &analysis.worst_duplicate_filename {
+            Some((name, count)) => format!(" (worst: {} appears {} times)", name, count),
+            None => String::new(),
+        };
+        action_parts.push(format!(
+            "Rename {} duplicate filenames{} — agents running `find` get noisy results. \
+             Use descriptive prefixes (e.g., user/index.ts -> user/userRoutes.ts).",
+            dup, worst_detail
+        ));
+    }
+    if coll > 10 {
+        let worst_detail = match &analysis.worst_function_collision {
+            Some((name, count)) => format!(" (worst: \"{}\" in {} files)", name, count),
+            None => String::new(),
+        };
+        action_parts.push(format!(
+            "Rename {} function names that collide across 3+ files{} — agents running \
+             `grep` for these names must sift through irrelevant matches. \
+             Use module-specific prefixes (e.g., handle -> handlePayment).",
+            coll, worst_detail
+        ));
+    }
+
+    let title = if dup > 5 && coll > 10 {
+        format!(
+            "Improve searchability ({} duplicate filenames, {} function collisions)",
+            dup, coll
+        )
+    } else if dup > 5 {
+        format!("Reduce duplicate filenames ({})", dup)
+    } else {
+        format!("Reduce function name collisions ({})", coll)
+    };
+
+    recs.push(Recommendation {
+        priority: 0,
+        estimated_reduction: reduction,
+        title,
+        target: "project-wide".to_string(),
+        action: action_parts.join(" "),
+        evidence: format!(
+            "{} duplicate filenames, {} function name collisions, {} generic names",
+            dup, coll, analysis.generic_name_count
+        ),
+    });
+}
+
+fn remove_dead_code(
+    score: &ScoreResult,
+    analysis: &AnalysisResult,
+    recs: &mut Vec<Recommendation>,
+) {
+    if analysis.unreferenced_function_count < 10 {
+        return;
+    }
+
+    let proposed_rating = score
+        .dimensions
+        .iter()
+        .find(|d| d.name == "Context pressure")
+        .map(|d| d.rating.saturating_sub(1))
+        .unwrap_or(0);
+    let reduction = estimate(score, "Context pressure", proposed_rating);
+
+    recs.push(Recommendation {
+        priority: 0,
+        estimated_reduction: reduction,
+        title: format!(
+            "Audit potentially unused code (~{} functions, ~{} lines)",
+            analysis.unreferenced_function_count, analysis.unreferenced_lines
+        ),
+        target: "project-wide".to_string(),
+        action: format!(
+            "Review ~{} large functions in isolated files that don't appear to be referenced \
+             elsewhere. These may be truly dead code adding ~{} lines of context noise. \
+             Note: framework-wired methods (controllers, listeners, commands) are excluded \
+             from this count — these are functions in files that no other file imports.",
+            analysis.unreferenced_function_count, analysis.unreferenced_lines
+        ),
+        evidence: format!(
+            "~{} functions (>= 15 lines each) in files with no incoming imports, totaling ~{} lines",
+            analysis.unreferenced_function_count, analysis.unreferenced_lines
         ),
     });
 }

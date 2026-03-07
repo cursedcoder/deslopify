@@ -1,10 +1,12 @@
 pub mod complexity;
+pub mod dead_code;
 pub mod duplication;
 pub mod imports;
 pub mod layers;
 pub mod naming;
 pub mod patterns;
 pub mod runtime;
+pub mod searchability;
 pub mod tree_sitter_util;
 
 use crate::scanner::{FileEntry, ScanResult};
@@ -94,13 +96,29 @@ pub struct AnalysisResult {
     pub max_function_lines: usize,
     pub max_nesting_depth: usize,
     pub avg_cyclomatic_complexity: f64,
+    pub duplicate_filename_count: usize,
+    pub function_collision_count: usize,
+    pub generic_name_count: usize,
+    pub worst_duplicate_filename: Option<(String, usize)>,
+    pub worst_function_collision: Option<(String, usize)>,
+    pub unreferenced_function_count: usize,
+    pub unreferenced_lines: usize,
+}
+
+fn is_likely_minified(file: &FileEntry) -> bool {
+    if file.line_count == 0 {
+        return false;
+    }
+    let avg_line_len = file.size_bytes as f64 / file.line_count as f64;
+    // Single-line files over 1KB, or files with avg line length > 200 chars
+    (file.line_count <= 3 && file.size_bytes > 1024) || avg_line_len > 200.0
 }
 
 pub fn analyze(scan: &ScanResult) -> AnalysisResult {
     let source_files: Vec<&FileEntry> = scan
         .files
         .iter()
-        .filter(|f| f.language.is_source_code())
+        .filter(|f| f.language.is_source_code() && !is_likely_minified(f))
         .collect();
 
     let mut all_functions = Vec::new();
@@ -131,6 +149,9 @@ pub fn analyze(scan: &ScanResult) -> AnalysisResult {
     let layer_analysis = layers::analyze_layers(&all_imports, scan);
     let layer_violations = layer_analysis.bidirectional_pairs.len();
     let god_module_count = layer_analysis.god_modules.len();
+
+    let search_stats = searchability::analyze(scan, &all_functions);
+    let dead = dead_code::detect_dead_code(&all_functions, &all_imports, scan);
 
     let avg_function_lines = if all_functions.is_empty() {
         0
@@ -171,5 +192,12 @@ pub fn analyze(scan: &ScanResult) -> AnalysisResult {
         max_function_lines,
         max_nesting_depth,
         avg_cyclomatic_complexity,
+        duplicate_filename_count: search_stats.duplicate_filenames,
+        function_collision_count: search_stats.function_name_collisions,
+        generic_name_count: search_stats.generic_name_count,
+        worst_duplicate_filename: search_stats.worst_duplicate_filename,
+        worst_function_collision: search_stats.worst_collision,
+        unreferenced_function_count: dead.unreferenced_function_count,
+        unreferenced_lines: dead.unreferenced_lines,
     }
 }

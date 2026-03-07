@@ -21,6 +21,7 @@ fn get_language(lang: Language) -> Option<tree_sitter::Language> {
         Language::C => Some(tree_sitter_c::LANGUAGE.into()),
         Language::Cpp => Some(tree_sitter_cpp::LANGUAGE.into()),
         Language::Ruby => Some(tree_sitter_ruby::LANGUAGE.into()),
+        Language::Php => Some(tree_sitter_php::LANGUAGE_PHP.into()),
         _ => None,
     }
 }

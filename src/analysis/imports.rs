@@ -112,6 +112,22 @@ fn extract_module_path(node: &tree_sitter::Node, source: &str, lang: Language) -
             let text = tree_sitter_util::node_text(node, source);
             return text.to_string();
         }
+        Language::Php => {
+            // `use App\Service\FooService;` → extract the qualified name
+            let mut cursor = node.walk();
+            if cursor.goto_first_child() {
+                loop {
+                    let child = cursor.node();
+                    if child.kind() == "namespace_use_clause" || child.kind() == "qualified_name"
+                    {
+                        return tree_sitter_util::node_text(&child, source).to_string();
+                    }
+                    if !cursor.goto_next_sibling() {
+                        break;
+                    }
+                }
+            }
+        }
         _ => {}
     }
     String::new()
@@ -128,6 +144,7 @@ fn get_import_kinds(lang: Language) -> Vec<&'static str> {
         Language::Java => vec!["import_declaration"],
         Language::C | Language::Cpp => vec!["preproc_include"],
         Language::Ruby => vec!["call"],
+        Language::Php => vec!["namespace_use_declaration"],
         _ => vec![],
     }
 }

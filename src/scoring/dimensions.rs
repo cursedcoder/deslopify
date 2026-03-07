@@ -118,6 +118,14 @@ fn architecture_clarity(scan: &ScanResult, analysis: &AnalysisResult) -> Dimensi
         rating += 1;
     }
 
+    if analysis.duplicate_filename_count > 10 {
+        rating += 1;
+    }
+
+    if analysis.function_collision_count > 15 {
+        rating += 1;
+    }
+
     rating = rating.min(5);
 
     let total_large = scan.files.iter().filter(|f| f.line_count > 500).count();
@@ -137,6 +145,29 @@ fn architecture_clarity(scan: &ScanResult, analysis: &AnalysisResult) -> Dimensi
             ", {} god modules (imported by >60% of groups)",
             analysis.god_module_count
         ));
+    }
+    if analysis.duplicate_filename_count > 0 {
+        let dup_detail = match &analysis.worst_duplicate_filename {
+            Some((name, count)) => format!(
+                ", {} duplicate filenames (worst: {} x{})",
+                analysis.duplicate_filename_count, name, count
+            ),
+            None => format!(", {} duplicate filenames", analysis.duplicate_filename_count),
+        };
+        evidence.push_str(&dup_detail);
+    }
+    if analysis.function_collision_count > 0 {
+        let coll_detail = match &analysis.worst_function_collision {
+            Some((name, count)) => format!(
+                ", {} function name collisions (worst: {} in {} files)",
+                analysis.function_collision_count, name, count
+            ),
+            None => format!(
+                ", {} function name collisions",
+                analysis.function_collision_count
+            ),
+        };
+        evidence.push_str(&coll_detail);
     }
 
     DimensionScore {
@@ -554,9 +585,15 @@ fn context_pressure(scan: &ScanResult, analysis: &AnalysisResult) -> DimensionSc
         rating += 1;
     }
 
+    // Cross-reference: hot files that are also complex are the most dangerous
+    let hot_complex_count = count_hot_complex_files(scan, analysis);
+    if hot_complex_count > 3 {
+        rating += 1;
+    }
+
     rating = rating.min(5);
 
-    let evidence = if effective_bytes < scan.total_bytes {
+    let mut evidence = if effective_bytes < scan.total_bytes {
         format!(
             "~{} active tokens (~{} total), avg function {} lines, max function {} lines, max nesting depth {}",
             format_tokens(active_tokens as usize),
@@ -575,12 +612,50 @@ fn context_pressure(scan: &ScanResult, analysis: &AnalysisResult) -> DimensionSc
         )
     };
 
+    if hot_complex_count > 0 {
+        evidence.push_str(&format!(
+            ", {} hot+complex files (frequently changed AND high complexity)",
+            hot_complex_count
+        ));
+    }
+
+    if analysis.unreferenced_function_count > 0 {
+        evidence.push_str(&format!(
+            ", ~{} potentially unused functions (~{} lines)",
+            analysis.unreferenced_function_count, analysis.unreferenced_lines
+        ));
+    }
+
     DimensionScore {
         name: "Context pressure".to_string(),
         weight: 5,
         rating,
         evidence,
     }
+}
+
+/// Count files that are both frequently changed (hot) AND contain complex functions.
+/// These are the highest-risk files for an agent — they change often AND are hard to understand.
+fn count_hot_complex_files(scan: &ScanResult, analysis: &AnalysisResult) -> usize {
+    let git = match &scan.git_activity {
+        Some(g) if g.is_git_repo && !g.hot_files.is_empty() => g,
+        _ => return 0,
+    };
+
+    let mut count = 0;
+    for hot in &git.hot_files {
+        let file_complexity: usize = analysis
+            .functions
+            .iter()
+            .filter(|f| f.file == hot.path)
+            .map(|f| f.cyclomatic_complexity)
+            .sum();
+        // A hot file with total complexity > 50 is dangerous
+        if file_complexity > 50 {
+            count += 1;
+        }
+    }
+    count
 }
 
 fn format_tokens(tokens: usize) -> String {

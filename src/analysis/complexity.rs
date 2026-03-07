@@ -120,6 +120,11 @@ fn get_function_kinds(lang: Language) -> Vec<&'static str> {
         Language::Java => vec!["method_declaration", "constructor_declaration"],
         Language::C | Language::Cpp => vec!["function_definition"],
         Language::Ruby => vec!["method", "singleton_method"],
+        Language::Php => vec![
+            "function_definition",
+            "method_declaration",
+            "anonymous_function",
+        ],
         _ => vec![],
     }
 }
@@ -182,6 +187,17 @@ fn get_branch_kinds(lang: Language) -> Vec<&'static str> {
         Language::Ruby => vec![
             "if", "elsif", "unless", "while", "for", "case", "when", "rescue",
         ],
+        Language::Php => vec![
+            "if_statement",
+            "for_statement",
+            "foreach_statement",
+            "while_statement",
+            "do_statement",
+            "switch_block",
+            "catch_clause",
+            "conditional_expression",
+            "match_expression",
+        ],
         _ => vec![],
     }
 }
@@ -235,6 +251,82 @@ fn get_nesting_kinds(lang: Language) -> Vec<&'static str> {
             "switch_statement",
         ],
         Language::Ruby => vec!["if", "unless", "while", "for", "case", "begin"],
+        Language::Php => vec![
+            "if_statement",
+            "for_statement",
+            "foreach_statement",
+            "while_statement",
+            "do_statement",
+            "switch_statement",
+            "try_statement",
+        ],
         _ => vec![],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scanner::FileEntry;
+    use std::path::PathBuf;
+
+    #[test]
+    fn php_functions_extracted() {
+        let code = r#"<?php
+namespace App\Service;
+
+class UserService {
+    public function findById(int $id): ?User {
+        return $this->em->find(User::class, $id);
+    }
+
+    public function save(User $user): void {
+        $this->em->persist($user);
+        $this->em->flush();
+    }
+}
+"#;
+        let file = FileEntry {
+            path: PathBuf::from("src/Service/UserService.php"),
+            content: code.to_string(),
+            line_count: 14,
+            size_bytes: code.len() as u64,
+            language: Language::Php,
+        };
+
+        let tree = super::super::tree_sitter_util::parse_file(&file).expect("parse_file returned None");
+        let funcs = extract_functions(&tree, &file);
+        let names: Vec<&str> = funcs.iter().map(|f| f.name.as_str()).collect();
+        assert!(
+            names.contains(&"findById"),
+            "Expected findById in {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"save"),
+            "Expected save in {:?}",
+            names
+        );
+        assert_eq!(funcs.len(), 2);
+    }
+
+    #[test]
+    fn php_closure_detected() {
+        let code = r#"<?php
+$callback = function($x) {
+    return $x * 2;
+};
+"#;
+        let file = FileEntry {
+            path: PathBuf::from("test.php"),
+            content: code.to_string(),
+            line_count: 5,
+            size_bytes: code.len() as u64,
+            language: Language::Php,
+        };
+        let tree = super::super::tree_sitter_util::parse_file(&file).unwrap();
+        let funcs = extract_functions(&tree, &file);
+        assert_eq!(funcs.len(), 1);
+        assert_eq!(funcs[0].name, "<anonymous>");
     }
 }
