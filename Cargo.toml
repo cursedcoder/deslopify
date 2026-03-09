@@ -1,6 +1,6 @@
 [package]
 name = "deslopify"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 description = "Codebase LLM-Friction Analyzer — measure how hard it is for an LLM agent to work on your codebase"
 license = "MIT"
