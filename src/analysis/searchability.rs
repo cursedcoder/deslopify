@@ -46,6 +46,12 @@ const STRUCTURAL_NAMES: &[&str] = &[
     "equals",
     "hashCode",
     "compareTo",
+    // Plugin/trait method names (intentional polymorphism, not confusion)
+    "execute",
+    "run",
+    "handle",
+    "invoke",
+    "apply",
     // Rust trait impls
     "fmt",
     "from",
@@ -375,5 +381,20 @@ mod tests {
         ];
         let (count, _) = count_function_collisions(&funcs);
         assert_eq!(count, 0, "Structural names should not count as collisions");
+    }
+
+    #[test]
+    fn plugin_trait_method_names_skipped() {
+        // execute/run/handle across many files = intentional polymorphism (e.g. Plugin trait), not confusion
+        let funcs = vec![
+            make_func("execute", "plugin_a.rs"),
+            make_func("execute", "plugin_b.rs"),
+            make_func("execute", "plugin_c.rs"),
+            make_func("run", "task_a.ts"),
+            make_func("run", "task_b.ts"),
+            make_func("run", "task_c.ts"),
+        ];
+        let (count, _) = count_function_collisions(&funcs);
+        assert_eq!(count, 0, "Plugin/trait method names should not count as collisions");
     }
 }

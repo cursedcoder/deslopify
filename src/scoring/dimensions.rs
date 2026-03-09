@@ -181,6 +181,18 @@ fn architecture_clarity(scan: &ScanResult, analysis: &AnalysisResult) -> Dimensi
     }
 }
 
+/// Well-known app shell / entry filenames. High fan-out here is expected (root wires imports).
+fn is_app_shell_file(path: &std::path::Path) -> bool {
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    matches!(
+        name,
+        "App.tsx" | "App.jsx" | "App.ts" | "App.js"
+            | "main.tsx" | "main.jsx" | "main.ts" | "main.js"
+            | "index.tsx" | "index.jsx" | "index.ts" | "index.js"
+            | "main.rs" | "lib.rs"
+    )
+}
+
 fn coupling_blast_radius(analysis: &AnalysisResult) -> DimensionScore {
     let graph = imports::compute_import_graph(&analysis.imports);
     let mut rating = 0u32;
@@ -191,7 +203,12 @@ fn coupling_blast_radius(analysis: &AnalysisResult) -> DimensionScore {
         rating += 1;
     }
 
-    if graph.max_fan_out > 30 {
+    // Don't penalize high fan-out on app shell files (root/entry points are expected to import widely).
+    let max_fan_out_is_app_shell = graph
+        .max_fan_out_file
+        .as_ref()
+        .map_or(false, |p| is_app_shell_file(p.as_path()));
+    if graph.max_fan_out > 30 && !max_fan_out_is_app_shell {
         rating += 1;
     }
 
@@ -522,7 +539,8 @@ fn dependency_boundaries(scan: &ScanResult) -> DimensionScore {
         rating = rating.saturating_sub(1);
     }
 
-    if has_config(scan, &ConfigKind::Lockfile) && q.lockfile_appears_fresh {
+    // Reward lockfile presence; only use freshness in evidence (stale lockfile is minor).
+    if has_config(scan, &ConfigKind::Lockfile) {
         rating = rating.saturating_sub(1);
     }
 
