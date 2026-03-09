@@ -186,10 +186,20 @@ fn is_app_shell_file(path: &std::path::Path) -> bool {
     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     matches!(
         name,
-        "App.tsx" | "App.jsx" | "App.ts" | "App.js"
-            | "main.tsx" | "main.jsx" | "main.ts" | "main.js"
-            | "index.tsx" | "index.jsx" | "index.ts" | "index.js"
-            | "main.rs" | "lib.rs"
+        "App.tsx"
+            | "App.jsx"
+            | "App.ts"
+            | "App.js"
+            | "main.tsx"
+            | "main.jsx"
+            | "main.ts"
+            | "main.js"
+            | "index.tsx"
+            | "index.jsx"
+            | "index.ts"
+            | "index.js"
+            | "main.rs"
+            | "lib.rs"
     )
 }
 
@@ -207,7 +217,7 @@ fn coupling_blast_radius(analysis: &AnalysisResult) -> DimensionScore {
     let max_fan_out_is_app_shell = graph
         .max_fan_out_file
         .as_ref()
-        .map_or(false, |p| is_app_shell_file(p.as_path()));
+        .is_some_and(|p| is_app_shell_file(p.as_path()));
     if graph.max_fan_out > 30 && !max_fan_out_is_app_shell {
         rating += 1;
     }

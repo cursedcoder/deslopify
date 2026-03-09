@@ -260,7 +260,7 @@ mod tests {
     fn identical_code_detected() {
         use std::path::PathBuf;
         let content = "line1\nline2\nline3\nline4\nlet x = foo(bar);\nlet y = baz(qux);\nif result { return x + y; }\nreturn result;\nline9\n";
-        let files = vec![
+        let files = [
             FileEntry {
                 path: PathBuf::from("a.rs"),
                 content: content.to_string(),
@@ -290,7 +290,7 @@ mod tests {
         use std::path::PathBuf;
         let content_a = "line1\nline2\nline3\nline4\nlet alpha = compute(beta);\nlet gamma = process(delta);\nif result { return alpha + gamma; }\nreturn result;\nline9\n";
         let content_b = "line1\nline2\nline3\nline4\nlet foo = compute(bar);\nlet baz = process(qux);\nif result { return foo + baz; }\nreturn result;\nline9\n";
-        let files = vec![
+        let files = [
             FileEntry {
                 path: PathBuf::from("a.rs"),
                 content: content_a.to_string(),
@@ -319,7 +319,7 @@ mod tests {
         use std::path::PathBuf;
         let content_a = "aaa\nbbb\nccc\nddd\neee\nfff\nggg\nhhh\niii\n";
         let content_b = "zzz\nyyy\nxxx\nwww\nvvv\nuuu\nttt\nsss\nrrr\n";
-        let files = vec![
+        let files = [
             FileEntry {
                 path: PathBuf::from("a.rs"),
                 content: content_a.to_string(),

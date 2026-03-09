@@ -395,6 +395,9 @@ mod tests {
             make_func("run", "task_c.ts"),
         ];
         let (count, _) = count_function_collisions(&funcs);
-        assert_eq!(count, 0, "Plugin/trait method names should not count as collisions");
+        assert_eq!(
+            count, 0,
+            "Plugin/trait method names should not count as collisions"
+        );
     }
 }

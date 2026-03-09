@@ -202,7 +202,7 @@ fn recommendations_generated_for_sloppy() {
 #[test]
 fn scan_respects_ignore_patterns() {
     let path = fixture_path("sloppy_project");
-    let scan_all = scanner::scan(&[path.clone()], &[]);
+    let scan_all = scanner::scan(std::slice::from_ref(&path), &[]);
     let scan_ignored = scanner::scan(&[path], &["engine".to_string()]);
 
     assert!(
