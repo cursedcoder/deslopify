@@ -20,19 +20,19 @@ It runs **pure static analysis** — tree-sitter AST parsing, file stats, config
 
 ```bash
 # macOS (Apple Silicon)
-curl -sSL https://github.com/cursedcoder/deslopify/releases/latest/download/deslopify-v0.1.0-aarch64-apple-darwin.tar.gz | tar xz
+curl -sSL https://github.com/cursedcoder/deslopify/releases/latest/download/deslopify-v0.3.0-aarch64-apple-darwin.tar.gz | tar xz
 sudo mv deslopify /usr/local/bin/
 
 # macOS (Intel)
-curl -sSL https://github.com/cursedcoder/deslopify/releases/latest/download/deslopify-v0.1.0-x86_64-apple-darwin.tar.gz | tar xz
+curl -sSL https://github.com/cursedcoder/deslopify/releases/latest/download/deslopify-v0.3.0-x86_64-apple-darwin.tar.gz | tar xz
 sudo mv deslopify /usr/local/bin/
 
 # Linux (x86_64)
-curl -sSL https://github.com/cursedcoder/deslopify/releases/latest/download/deslopify-v0.1.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
+curl -sSL https://github.com/cursedcoder/deslopify/releases/latest/download/deslopify-v0.3.0-x86_64-unknown-linux-gnu.tar.gz | tar xz
 sudo mv deslopify /usr/local/bin/
 
 # Linux (aarch64)
-curl -sSL https://github.com/cursedcoder/deslopify/releases/latest/download/deslopify-v0.1.0-aarch64-unknown-linux-gnu.tar.gz | tar xz
+curl -sSL https://github.com/cursedcoder/deslopify/releases/latest/download/deslopify-v0.3.0-aarch64-unknown-linux-gnu.tar.gz | tar xz
 sudo mv deslopify /usr/local/bin/
 
 # From source
